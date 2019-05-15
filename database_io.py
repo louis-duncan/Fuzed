@@ -145,10 +145,10 @@ class DatabaseHandler:
         pass
 
     def validate_user(self, con, user_name, password, sign_in=True):
-        user = con.one("SELECT * FROM users WHERE name=?", (user_name,))
+        user = con.one("SELECT * FROM users WHERE name=?", (user_name.lower(),))
 
         if user is None:
-            return
+            return False
 
         hasher = hashlib.sha3_256()
         hasher.update(password.encode())
