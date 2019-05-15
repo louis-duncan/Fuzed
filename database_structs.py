@@ -18,7 +18,8 @@ class StockItem:
                  duration=0.0,
                  low_noise=False,
                  notes="",
-                 preview_link=""
+                 preview_link="",
+                 hidden=False
                  ):
         self.sku = sku
         self.description = description
@@ -36,6 +37,7 @@ class StockItem:
         self.low_noise = low_noise
         self.notes = notes
         self.preview_link = preview_link
+        self.hidden = hidden
 
 
 class Show:
@@ -44,21 +46,32 @@ class Show:
                  show_title="",
                  show_description="",
                  supervisor=0,
-                 date_time=datetime.datetime.now()
+                 date_time=datetime.datetime.now(),
+                 complete=False,
+                 changes=[],
+                 items=[]
                  ):
         self.show_id = show_id
         self.show_title = show_title
         self.show_description = show_description
         self.supervisor = supervisor
         self.date_time = date_time
-        self.items = []  # {'sku': sku, 'quantity': num}
-        self.changes = []  # {'date_time': datetime, 'user': user_id, 'action_text': text}
-        self.complete = False
+        self.items = items  # list of (stock item, qty).
+        self.changes = changes  # list of Record objects.
+        self.complete = complete
 
     def add_change_log(self, date_time, user_id, action_text):
         self.changes.append({'date_time': date_time,
                              'user_id': user_id,
                              'action_text': action_text})
+
+
+class ShowChange:
+    def __init__(self,
+                 date_time,
+                 text):
+        self.date_time = date_time
+        self.text = text
 
 
 class User:
@@ -69,3 +82,4 @@ class User:
         self.user_id = user_id
         self.name = name
         self.auth_level = auth_level
+
