@@ -2,12 +2,12 @@ import binascii
 import hashlib
 import sqlite3
 import sql
-import random
 import os
 import pickle
 import time
 import datetime
-import database_structs
+from database_structs import *
+
 
 class DatabaseTimeoutError(Exception):
     pass
@@ -76,25 +76,62 @@ class DatabaseHandler(Database):
         super().__init__(database_path)
         self.__signed_in_user = None
 
-    def get_stock_item(self, sku):
-        pass
+    def get_items_by_category(self, categories, text_filter="", release=True):
+        if type(categories) in (list, tuple):
+            q = "SELECT * FROM stock_items WHERE category IN ({})"
+            q.format(str(categories).strip("()[],"))
+        elif categories == "*":
+            q = "SELECT * FROM stock_items"
+        else:
+            raise(ValueError("Parameter categories must be list, tuple or '*'."))
 
-    def search_items(self, text, classification):
-        pass
+        with self._open_database_connection() as con:
+            items = [self.record_to_item(i) for i in con.all(q)]
+
+        if release:
+            self._release_handle()
+
+        if text_filter != "":
+            for i in items:
+                if text_filter.lower() in i.description.lower() or text_filter.lower() in i.notes.lower():
+                    pass
+                else:
+                    items.remove(i)
+
+        return items
 
     def update_stock_item(self, stock_item_obj):
         pass
 
-    def get_show(self, show_id):
-        pass
+    def get_shows(self, open_only=True, text_filter="", release=True):
+        q = "SELECT * FROM shows"
+        if open_only:
+            q += " WHERE complete=0"
+
+        with self._open_database_connection() as con:
+            shows = [self.record_to_show(s, False) for s in con.all(q)]
+
+        if release:
+            self._release_handle()
+
+        if text_filter != "":
+            for s in shows:
+                text_filter = text_filter.lower()
+                if text_filter in s.show_title.lower() or\
+                        text_filter in s.show_description.lower() or\
+                        text_filter in s.supervisor.lower():
+                    pass
+                else:
+                    shows.remove(s)
+
+        return shows
 
     def update_show(self, show_obj):
         pass
 
-    def validate_user(self, user_name, password, sign_in=True):
+    def validate_user(self, user_name, password, sign_in=True, release=True):
         with self._open_database_connection() as con:
             user = con.one("SELECT * FROM users WHERE name=?", (user_name,))
-        self._release_handle()
 
         if user is None:
             return
@@ -108,16 +145,19 @@ class DatabaseHandler(Database):
             with self._open_database_connection() as con:
                 con.run("UPDATE users SET last_login_time=?  WHERE user_id=?", (datetime.datetime.now(), user.user_id))
                 con.connection.commit()
-            self._release_handle()
             self.__signed_in_user = user.user_id
         else:
             pass
+
+        if release:
+            self._release_handle()
+
         return valid
 
     def signed_in_user(self):
         return self.__signed_in_user
 
-    def get_user(self, user_id=None, user_name=None):
+    def get_user(self, user_id=None, user_name=None, release=True):
         assert user_id is not None or user_name is not None
         if user_id is not None:
             q = "SELECT * FROM users WHERE user_id=?"
@@ -127,13 +167,50 @@ class DatabaseHandler(Database):
             p = (user_name,)
         with self._open_database_connection() as con:
             result = con.one(q, p)
-        self._release_handle()
+        if release:
+            self._release_handle()
         return result
 
     def sign_out(self):
         self.__signed_in_user = None
 
+    def get_show_changes(self, show_id, release=True):
+        with self._open_database_connection() as con:
+            raw_changes = con.all("SELECT date_time, text FROM show_changes WHERE show_id=?", (show_id,))
 
+        if release:
+            self._release_handle()
+
+        return [ShowChange(datetime.datetime.fromtimestamp(c.date_time / 1000), c.text) for c in raw_changes]
+
+    def record_to_item(self, record):
+        return StockItem(record.sku,
+                         record.description,
+                         record.category,
+                         record.classification,
+                         record.calibre,
+                         record.unit_cost,
+                         record.unit_weight,
+                         record.nec_weight,
+                         record.case_size,
+                         record.hse_no,
+                         record.ce_no,
+                         record.serial_no,
+                         record.duration,
+                         record.low_noise,
+                         record.notes,
+                         record.preview_link,
+                         bool(record.hidden))
+
+    def record_to_show(self, record, release=True):
+        changes = self.get_show_changes(record.show_id, release)
+        return Show(record.show_id,
+                    record.show_title,
+                    record.show_description,
+                    record.supervisor,
+                    datetime.datetime.fromtimestamp(record.date_time / 1000),
+                    bool(record.complete),
+                    changes)
 
 
 class Handle:
@@ -143,3 +220,7 @@ class Handle:
 
     def expired(self):
         return datetime.datetime.now() > self._expiry
+
+
+if __name__ == "__main__":
+    db = DatabaseHandler("database.sqlite")
