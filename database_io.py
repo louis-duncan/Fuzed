@@ -1,6 +1,8 @@
 import binascii
 import hashlib
 import sqlite3
+from typing import Optional, Any
+
 import sql
 import os
 import pickle
@@ -13,31 +15,33 @@ class DatabaseTimeoutError(Exception):
     pass
 
 
-class Database:
-    def __init__(self, database_path):
-        self.database_path = database_path
-        self.uid = os.environ["USERNAME"] + "@" + os.environ["COMPUTERNAME"]
-        self._handle_path = self.database_path+"-handle.dat"
+class NewSQL(sql.SQL):
+    def __init__(self, connection, handle_path, uid):
+        super().__init__(connection)
 
-    def _open_database_connection(self):
-        # Get the handle
-        self._take_handle()  # Will throw a DatabaseTimeoutError if the connection fails.
+        self._handle_path = handle_path
+        self._uid = uid
 
-        # If we're here we got the handle, so open the database and return the db_object.
-        conn = sqlite3.connect(self.database_path)
-        bliss: sql.SQL = sql.SQL(conn)
+    def __enter__(self):
+        self._take_handle()
+        return self
 
-        return bliss
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
 
-    def _take_handle(self, attempts=5, delay=2):
+    def close(self):
+        self.connection.close()
+        self._release_handle()
+
+    def _take_handle(self, attempts=30, delay=1):
         # Get the handle that currently exists.
         if attempts == 0:
             raise DatabaseTimeoutError
         current_handle = self._get_handle()
 
         # If we can take the handle:
-        if (current_handle is None) or current_handle.expired() or (current_handle.holder == self.uid):
-            new_handle = Handle(self.uid)
+        if (current_handle is None) or current_handle.expired() or (current_handle.holder == self._uid):
+            new_handle = Handle(self._uid)
             with open(self._handle_path, "bw") as fh:
                 pickle.dump(new_handle, fh)
         # Else wait and try again.
@@ -51,7 +55,7 @@ class Database:
         if current_handle is None:
             pass
         else:
-            if current_handle.holder != self.uid:
+            if current_handle.holder != self._uid:
                 pass
             else:
                 # The only case in which the program needs to make any changes.
@@ -66,30 +70,45 @@ class Database:
             current_handle = None
         return current_handle
 
-    def _has_handle(self):
+    def has_handle(self):
         current_handle = self._get_handle()
-        return (current_handle is not None) and (current_handle.holder == self.uid) and (not current_handle.expired())
+        return (current_handle is not None) and (current_handle.holder == self._uid) and (not current_handle.expired())
 
 
-class DatabaseHandler(Database):
+class DatabaseHandler:
     def __init__(self, database_path):
-        super().__init__(database_path)
+        self.database_path = database_path
+        self.uid = os.environ["USERNAME"] + "@" + os.environ["COMPUTERNAME"]
+        self._handle_path = self.database_path + "-handle.dat"
+
         self.__signed_in_user = None
 
-    def get_items_by_category(self, categories, text_filter="", release=True):
+    def open_database_connection(self):
+        sql_conn = sqlite3.connect(self.database_path)
+        return NewSQL(sql_conn, self._handle_path, self.uid)
+
+    def who_has_handle(self):
+        with open(self._handle_path, "br") as fh:
+            handle: Handle = pickle.load(fh)
+
+        if handle is None:
+            print("Handle not currently held.")
+        else:
+            print("Handle {} currently held by {} until {}, expired: {}".format(self._handle_path,
+                                                                                handle.holder,
+                                                                                handle.expiry.ctime(),
+                                                                                handle.expired()))
+
+    def get_items_by_category(self, categories, text_filter=""):
         if type(categories) in (list, tuple):
             q = "SELECT * FROM stock_items WHERE category IN ({})"
             q.format(str(categories).strip("()[],"))
         elif categories == "*":
             q = "SELECT * FROM stock_items"
         else:
-            raise(ValueError("Parameter categories must be list, tuple or '*'."))
+            raise (ValueError("Parameter categories must be list, tuple or '*'."))
 
-        with self._open_database_connection() as con:
-            items = [self.record_to_item(i) for i in con.all(q)]
-
-        if release:
-            self._release_handle()
+        items = [self.record_to_item(i) for i in con.all(q)]
 
         if text_filter != "":
             for i in items:
@@ -103,22 +122,18 @@ class DatabaseHandler(Database):
     def update_stock_item(self, stock_item_obj):
         pass
 
-    def get_shows(self, open_only=True, text_filter="", release=True):
+    def get_shows(self, con, open_only=True, text_filter=""):
         q = "SELECT * FROM shows"
         if open_only:
             q += " WHERE complete=0"
 
-        with self._open_database_connection() as con:
-            shows = [self.record_to_show(s, False) for s in con.all(q)]
-
-        if release:
-            self._release_handle()
+        shows = [self.record_to_show(con, s) for s in con.all(q)]
 
         if text_filter != "":
             for s in shows:
                 text_filter = text_filter.lower()
-                if text_filter in s.show_title.lower() or\
-                        text_filter in s.show_description.lower() or\
+                if text_filter in s.show_title.lower() or \
+                        text_filter in s.show_description.lower() or \
                         text_filter in s.supervisor.lower():
                     pass
                 else:
@@ -129,9 +144,8 @@ class DatabaseHandler(Database):
     def update_show(self, show_obj):
         pass
 
-    def validate_user(self, user_name, password, sign_in=True, release=True):
-        with self._open_database_connection() as con:
-            user = con.one("SELECT * FROM users WHERE name=?", (user_name,))
+    def validate_user(self, con, user_name, password, sign_in=True):
+        user = con.one("SELECT * FROM users WHERE name=?", (user_name,))
 
         if user is None:
             return
@@ -142,46 +156,45 @@ class DatabaseHandler(Database):
         valid = hasher.hexdigest() == user.pass_hash
 
         if sign_in and valid:
-            with self._open_database_connection() as con:
-                con.run("UPDATE users SET last_login_time=?  WHERE user_id=?", (datetime.datetime.now(), user.user_id))
-                con.connection.commit()
+            con.run("UPDATE users SET last_login_time=?  WHERE user_id=?", (datetime.datetime.now(), user.user_id))
+            con.connection.commit()
             self.__signed_in_user = user.user_id
         else:
             pass
-
-        if release:
-            self._release_handle()
 
         return valid
 
     def signed_in_user(self):
         return self.__signed_in_user
 
-    def get_user(self, user_id=None, user_name=None, release=True):
+    def get_user(self, con, user_id=None, user_name=None):
         assert user_id is not None or user_name is not None
+
         if user_id is not None:
             q = "SELECT * FROM users WHERE user_id=?"
             p = (user_id,)
         else:
             q = "SELECT * FROM users WHERE name=?"
             p = (user_name,)
-        with self._open_database_connection() as con:
-            result = con.one(q, p)
-        if release:
-            self._release_handle()
+
+        result = con.one(q, p)
+
         return result
 
     def sign_out(self):
         self.__signed_in_user = None
 
-    def get_show_changes(self, show_id, release=True):
-        with self._open_database_connection() as con:
-            raw_changes = con.all("SELECT date_time, text FROM show_changes WHERE show_id=?", (show_id,))
-
-        if release:
-            self._release_handle()
+    def get_show_changes(self, con, show_id):
+        raw_changes = con.all("SELECT date_time, text FROM show_changes WHERE show_id=?", (show_id,))
 
         return [ShowChange(datetime.datetime.fromtimestamp(c.date_time / 1000), c.text) for c in raw_changes]
+
+    def get_show_items(self, con, show_id):
+        raw_items = con.all("SELECT sku, quantity FROM show_items WHERE show_id=?", (show_id,))
+        items = [(self.record_to_item(con.one("SELECT * FROM stock_items WHERE sku=?", (i.sku,))),
+                  i.quantity) for i in raw_items]
+
+        return items
 
     def record_to_item(self, record):
         return StockItem(record.sku,
@@ -202,24 +215,26 @@ class DatabaseHandler(Database):
                          record.preview_link,
                          bool(record.hidden))
 
-    def record_to_show(self, record, release=True):
-        changes = self.get_show_changes(record.show_id, release)
+    def record_to_show(self, con, record):
+        changes = self.get_show_changes(con, record.show_id)
+        items = self.get_show_items(con, record.show_id)
         return Show(record.show_id,
                     record.show_title,
                     record.show_description,
                     record.supervisor,
                     datetime.datetime.fromtimestamp(record.date_time / 1000),
                     bool(record.complete),
-                    changes)
+                    changes,
+                    items)
 
 
 class Handle:
     def __init__(self, uid, ttl=30):
         self.holder = uid
-        self._expiry = datetime.datetime.now() + datetime.timedelta(seconds=ttl)
+        self.expiry = datetime.datetime.now() + datetime.timedelta(seconds=ttl)
 
     def expired(self):
-        return datetime.datetime.now() > self._expiry
+        return datetime.datetime.now() > self.expiry
 
 
 if __name__ == "__main__":
