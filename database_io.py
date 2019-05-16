@@ -1,5 +1,6 @@
 import binascii
 import hashlib
+import random
 import sqlite3
 from typing import Optional, Any
 
@@ -9,6 +10,9 @@ import pickle
 import time
 import datetime
 from database_structs import *
+
+
+DATABASE_PATH = None
 
 
 class DatabaseTimeoutError(Exception):
@@ -99,7 +103,7 @@ class DatabaseHandler:
                                                                                 handle.expiry.ctime(),
                                                                                 handle.expired()))
 
-    def get_items_by_category(self, categories, text_filter=""):
+    def get_items_by_category(self, con, categories, text_filter=""):
         if type(categories) in (list, tuple):
             q = "SELECT * FROM stock_items WHERE category IN ({})"
             q.format(str(categories).strip("()[],"))
@@ -108,7 +112,7 @@ class DatabaseHandler:
         else:
             raise (ValueError("Parameter categories must be list, tuple or '*'."))
 
-        items = [self.record_to_item(i) for i in con.all(q)]
+        items = [self.record_to_item(con, i) for i in con.all(q)]
 
         if text_filter != "":
             for i in items:
@@ -164,6 +168,29 @@ class DatabaseHandler:
 
         return valid
 
+    def set_user_password(self, con, user_name, current_password, new_password):
+        """
+
+        :type con: NewSQL
+        """
+        if not self.validate_user(con, user_name, current_password, False):
+            return False
+
+        new_salt = bytes([random.randint(0, 255) for i in range(32)])
+        new_hex_salt = binascii.hexlify(new_salt)
+
+        hasher = hashlib.sha3_256()
+        hasher.update(new_password.encode())
+        hasher.update(new_salt)
+
+        new_hash = hasher.hexdigest()
+
+        con.run("UPDATE users SET pass_hash=?, pass_salt=? WHERE name=?",
+                (new_hash, new_hex_salt, user_name.lower()))
+        con.connection.commit()
+
+        return True
+
     def signed_in_user(self):
         return self.__signed_in_user
 
@@ -191,16 +218,18 @@ class DatabaseHandler:
 
     def get_show_items(self, con, show_id):
         raw_items = con.all("SELECT sku, quantity FROM show_items WHERE show_id=?", (show_id,))
-        items = [(self.record_to_item(con.one("SELECT * FROM stock_items WHERE sku=?", (i.sku,))),
+        items = [(self.record_to_item(con, con.one("SELECT * FROM stock_items WHERE sku=?", (i.sku,))),
                   i.quantity) for i in raw_items]
 
         return items
 
-    def record_to_item(self, record):
+    def record_to_item(self, con: NewSQL, record):
         return StockItem(record.sku,
                          record.description,
-                         record.category,
-                         record.classification,
+                         con.one("SELECT category_text FROM stock_categories WHERE category_no=?",
+                                 (record.category,)),
+                         con.one("SELECT classification_text FROM stock_classifications WHERE classification_id=?",
+                                 (record.category,)),
                          record.calibre,
                          record.unit_cost,
                          record.unit_weight,
@@ -237,5 +266,16 @@ class Handle:
         return datetime.datetime.now() > self.expiry
 
 
+def load_config(config_path="config.cfg"):
+    with open(config_path, "r") as fh:
+        lines = [l.strip() for l in fh]
+    for l in lines:
+        if not l.startswith("#"):
+            parts = [p.strip() for p in l.split("=")]
+            if len(parts) == 2 and parts[0].isupper():
+                globals()[parts[0]] = parts[1]
+
+
 if __name__ == "__main__":
-    db = DatabaseHandler("database.sqlite")
+    load_config()
+    db = DatabaseHandler(DATABASE_PATH)
