@@ -276,6 +276,11 @@ def load_config(config_path="config.cfg"):
                 globals()[parts[0]] = parts[1]
 
 
+def init():
+    load_config()
+    return DatabaseHandler(DATABASE_PATH)
+
+
 if __name__ == "__main__":
     load_config()
     db = DatabaseHandler(DATABASE_PATH)
