@@ -220,8 +220,13 @@ class DatabaseHandler:
         raw_items = con.all("SELECT sku, quantity FROM show_items WHERE show_id=?", (show_id,))
         items = [(self.record_to_item(con, con.one("SELECT * FROM stock_items WHERE sku=?", (i.sku,))),
                   i.quantity) for i in raw_items]
-
         return items
+
+    def get_categories(self, con):
+        return con.all("SELECT category_text FROM stock_categories")
+
+    def get_classifications(self, con):
+        return con.all("SELECT classification_text FROM stock_classifications")
 
     def record_to_item(self, con: NewSQL, record):
         return StockItem(record.sku,
@@ -255,6 +260,9 @@ class DatabaseHandler:
                     bool(record.complete),
                     changes,
                     items)
+
+    def get_all_items(self, con):
+        return [self.record_to_item(i) for i in con.all("SELECT * FROM stock_items")]
 
 
 class Handle:
