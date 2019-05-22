@@ -262,7 +262,7 @@ class DatabaseHandler:
                     items)
 
     def get_all_items(self, con):
-        return [self.record_to_item(i) for i in con.all("SELECT * FROM stock_items")]
+        return [self.record_to_item(con, i) for i in con.all("SELECT * FROM stock_items")]
 
 
 class Handle:
