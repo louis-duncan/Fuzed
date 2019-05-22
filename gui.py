@@ -167,18 +167,18 @@ class StockViewer(wx.Frame):
         self.stock_list = wx.ListCtrl(self,
                                       size=(-1, -1),
                                       style=wx.LC_REPORT | wx.LC_HRULES)
-        self.table_headers = ["SKU",
-                              "Description",
-                              "Category",
-                              "Classification",
-                              "Unit Cost",
-                              "Unit Weight",
-                              "NEC Weight",
-                              "Calibre",
-                              "Duration",
-                              "Low Noise"]
+        self.table_headers = {"SKU": "sku",
+                              "Description": "description",
+                              "Category": "category",
+                              "Classification": "classification",
+                              "Unit Cost": "unit_cost",
+                              "Unit Weight": "unit_weight",
+                              "NEC Weight": "nec_weight",
+                              "Calibre": "calibre",
+                              "Duration": "duration",
+                              "Low Noise": "low_noise"}
 
-        for i, h in enumerate(self.table_headers):
+        for i, h in enumerate(self.table_headers.keys()):
             self.stock_list.InsertColumn(i, h)
 
         # Create and populate the controls area.
@@ -232,10 +232,12 @@ class StockViewer(wx.Frame):
         cat_buttons_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.cat_select_all = wx.Button(controls_panel,
                                         wx.ID_ANY,
-                                        label="Select All")
+                                        label="Select All",
+                                        size=(-1, 30))
         self.cat_clear_all = wx.Button(controls_panel,
                                        wx.ID_ANY,
-                                       label="Clear All")
+                                       label="Clear All",
+                                       size=(-1, 30))
         cat_buttons_sizer.Add(self.cat_select_all, 1, wx.EXPAND)
         cat_buttons_sizer.Add(self.cat_clear_all, 1, wx.EXPAND)
         controls_sizer.Add(cat_buttons_sizer, 0, wx.LEFT | wx.RIGHT | wx.EXPAND, padding)
@@ -250,10 +252,12 @@ class StockViewer(wx.Frame):
         class_buttons_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.class_select_all = wx.Button(controls_panel,
                                           wx.ID_ANY,
-                                          label="Select All")
+                                          label="Select All",
+                                          size=(-1, 30))
         self.class_clear_all = wx.Button(controls_panel,
                                          wx.ID_ANY,
-                                         label="Clear All")
+                                         label="Clear All",
+                                         size=(-1, 30))
         class_buttons_sizer.Add(self.class_select_all, 1, wx.EXPAND)
         class_buttons_sizer.Add(self.class_clear_all, 1, wx.EXPAND)
         controls_sizer.Add(class_buttons_sizer, 0, wx.LEFT | wx.RIGHT | wx.EXPAND, padding)
@@ -322,9 +326,12 @@ class StockViewer(wx.Frame):
 
     def populate_table(self, e):
         with self.database.open_database_connection() as con:
-            stock_items = self.database.get_items(con)
+            stock_items = self.database.get_all_items(con)
 
         # TODO
+
+    def format_item_to_list(self, item, attr):
+        return []
 
     def update_table(self, e):
         pass
