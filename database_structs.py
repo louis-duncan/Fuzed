@@ -4,6 +4,7 @@ import datetime
 class StockItem:
     def __init__(self,
                  sku,
+                 product_id,
                  description,
                  category=0,
                  classification=0,
@@ -22,6 +23,7 @@ class StockItem:
                  hidden=False
                  ):
         self.sku = sku
+        self.product_id = product_id
         self.description = description
         self.category = category
         self.classification = classification
@@ -48,16 +50,16 @@ class Show:
                  supervisor=0,
                  date_time=datetime.datetime.now(),
                  complete=False,
-                 changes=[],
-                 items=[]
+                 changes=(),
+                 items=()
                  ):
         self.show_id = show_id
         self.show_title = show_title
         self.show_description = show_description
         self.supervisor = supervisor
         self.date_time = date_time
-        self.items = items  # list of (stock item, qty).
-        self.changes = changes  # list of Record objects.
+        self.items = list(items)  # list of (stock item, qty).
+        self.changes = list(changes)  # list of Record objects.
         self.complete = complete
 
     def add_change_log(self, date_time, user_id, action_text):
