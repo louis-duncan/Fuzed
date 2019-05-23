@@ -167,16 +167,17 @@ class StockViewer(wx.Frame):
         self.stock_list = wx.ListCtrl(self,
                                       size=(-1, -1),
                                       style=wx.LC_REPORT | wx.LC_HRULES)
-        self.table_headers = {"SKU": "sku",
-                              "Description": "description",
-                              "Category": "category",
-                              "Classification": "classification",
-                              "Unit Cost": "unit_cost",
-                              "Unit Weight": "unit_weight",
-                              "NEC Weight": "nec_weight",
-                              "Calibre": "calibre",
-                              "Duration": "duration",
-                              "Low Noise": "low_noise"}
+        self.table_headers = {"SKU": ("sku", lambda x: str(x).zfill(6)),
+                              "Product ID": ("product_id", lambda x: x),
+                              "Description": ("description", lambda x: x),
+                              "Category": ("category", lambda x: x),
+                              "Classification": ("classification", lambda x: x),
+                              "Unit Cost": ("unit_cost", lambda x: "£{:.2f}".format(x)),
+                              "Unit Weight": ("unit_weight", lambda x: "{:.2f}kg".format(x)),
+                              "NEC Weight": ("nec_weight", lambda x: "{:.2f}kg".format(x)),
+                              "Calibre": ("calibre", lambda x: "{}mm".format(x)),
+                              "Duration": ("duration", lambda x: "{}s".format(x)),
+                              "Low Noise": ("low_noise", lambda x: "Yes" if x else "No")}
 
         for i, h in enumerate(self.table_headers.keys()):
             self.stock_list.InsertColumn(i, h)
@@ -200,7 +201,7 @@ class StockViewer(wx.Frame):
                                      size=(200, 50))
         controls_sizer.Add(self.edit_button, 0, wx.LEFT | wx.RIGHT, padding)
 
-        controls_sizer.AddSpacer(padding * 5)
+        controls_sizer.AddSpacer(padding * 3)
 
         self.search_box = wx.SearchCtrl(controls_panel, size=(200, -1))
         self.search_box.SetDescriptiveText("Filter...")
@@ -229,6 +230,8 @@ class StockViewer(wx.Frame):
         controls_sizer.Add(categories_label, 0, wx.LEFT | wx.RIGHT, padding)
         controls_sizer.Add(self.categories_select, 1, wx.LEFT | wx.RIGHT | wx.EXPAND, padding)
 
+        controls_sizer.AddSpacer(padding / 2)
+
         cat_buttons_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.cat_select_all = wx.Button(controls_panel,
                                         wx.ID_ANY,
@@ -248,6 +251,8 @@ class StockViewer(wx.Frame):
                                               label="Classifications:")
         controls_sizer.Add(classifications_label, 0, wx.LEFT | wx.RIGHT, padding)
         controls_sizer.Add(self.classifications_select, 0, wx.LEFT | wx.RIGHT, padding)
+
+        controls_sizer.AddSpacer(padding / 2)
 
         class_buttons_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.class_select_all = wx.Button(controls_panel,
@@ -328,10 +333,11 @@ class StockViewer(wx.Frame):
         with self.database.open_database_connection() as con:
             stock_items = self.database.get_all_items(con)
 
-        # TODO
+        for i in stock_items:
+            self.stock_list.Append(["" if getattr(i, self.table_headers[h][0]) is None else
+                                    self.table_headers[h][1](getattr(i, self.table_headers[h][0]))
+                                    for h in self.table_headers])
 
-    def format_item_to_list(self, item, attr):
-        return []
 
     def update_table(self, e):
         pass
