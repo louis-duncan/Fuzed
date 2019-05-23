@@ -170,12 +170,15 @@ class DatabaseHandler:
 
     def set_user_password(self, con, user_name, current_password, new_password):
         """
-
         :type con: NewSQL
+        :param user_name: str
+        :param current_password: str
+        :param new_password: str
         """
         if not self.validate_user(con, user_name, current_password, False):
             return False
 
+        # noinspection PyUnusedLocal
         new_salt = bytes([random.randint(0, 255) for i in range(32)])
         new_hex_salt = binascii.hexlify(new_salt)
 
@@ -229,7 +232,10 @@ class DatabaseHandler:
         return con.all("SELECT classification_text FROM stock_classifications")
 
     def record_to_item(self, con: NewSQL, record):
+        if record is None:
+            return None
         return StockItem(record.sku,
+                         record.product_id,
                          record.description,
                          con.one("SELECT category_text FROM stock_categories WHERE category_no=?",
                                  (record.category,)),
