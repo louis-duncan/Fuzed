@@ -1,3 +1,5 @@
+import time
+
 import database_io
 import wx
 from wx.richtext import RichTextCtrl
@@ -159,6 +161,7 @@ class StockViewer(wx.Frame):
                          frame_id,
                          title + " - Stock Viewer",
                          style=wx.DEFAULT_FRAME_STYLE)
+        self.Maximize(True)
         self.title = title
         self.database = database
         self.open = True
@@ -167,20 +170,23 @@ class StockViewer(wx.Frame):
         self.stock_list = wx.ListCtrl(self,
                                       size=(-1, -1),
                                       style=wx.LC_REPORT | wx.LC_HRULES)
-        self.table_headers = {"SKU": ("sku", lambda x: str(x).zfill(6)),
-                              "Product ID": ("product_id", lambda x: x),
-                              "Description": ("description", lambda x: x),
-                              "Category": ("category", lambda x: x),
-                              "Classification": ("classification", lambda x: x),
-                              "Unit Cost": ("unit_cost", lambda x: "£{:.2f}".format(x)),
-                              "Unit Weight": ("unit_weight", lambda x: "{:.2f}kg".format(x)),
-                              "NEC Weight": ("nec_weight", lambda x: "{:.2f}kg".format(x)),
-                              "Calibre": ("calibre", lambda x: "{}mm".format(x)),
-                              "Duration": ("duration", lambda x: "{}s".format(x)),
-                              "Low Noise": ("low_noise", lambda x: "Yes" if x else "No")}
+
+        self.table_headers = {"SKU": ("sku", lambda x: str(x).zfill(6), 80),
+                              "Product ID": ("product_id", lambda x: x, 80),
+                              "Description": ("description", lambda x: x, -1),
+                              "Category": ("category", lambda x: x, 80),
+                              "Classification": ("classification", lambda x: x, 100),
+                              "Unit Cost": ("unit_cost", lambda x: "£{:.2f}".format(x), 80),
+                              "Unit Weight": ("unit_weight", lambda x: "{:.2f}kg".format(x), 80),
+                              "NEC Weight": ("nec_weight", lambda x: "{:.2f}kg".format(x), 80),
+                              "Calibre": ("calibre", lambda x: "{}mm".format(x), 80),
+                              "Duration": ("duration", lambda x: "{}s".format(x), 80),
+                              "Low Noise": ("low_noise", lambda x: "Yes" if x else "No", 80)}
+        self.column_to_expand = 2
 
         for i, h in enumerate(self.table_headers.keys()):
             self.stock_list.InsertColumn(i, h)
+            #self.stock_list.SetColumnWidth(i, self.table_headers[h][2])
 
         # Create and populate the controls area.
         controls_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -298,8 +304,18 @@ class StockViewer(wx.Frame):
         self.Bind(wx.EVT_BUTTON, self.clear_classifications, self.class_clear_all)
         self.Bind(wx.EVT_LISTBOX, self.category_filter_changed, self.categories_select)
         self.Bind(wx.EVT_LISTBOX, self.classification_filter_changed, self.classifications_select)
+        self.Bind(wx.EVT_BUTTON, self.create_button_clicked, self.create_new_button)
+        self.Bind(wx.EVT_SIZING, self.update_table_size)
+        #self.Bind(wx.EVT_MAXIMIZE, self.update_table_size)
+
 
         self.populate_table(None)
+        self.update_table_size(None)
+
+    def create_button_clicked(self, e=None):
+        for i, h in enumerate(self.table_headers):
+            print(h, ":", self.stock_list.GetColumnWidth(i))
+        self.WarpPointer(-10,-10)
 
     def category_filter_changed(self, e):
         # Do stuff
@@ -329,7 +345,7 @@ class StockViewer(wx.Frame):
         for i in range(len(self.classifications_select.Items)):
             self.classifications_select.Check(i, False)
 
-    def populate_table(self, e):
+    def populate_table(self, e=None):
         with self.database.open_database_connection() as con:
             stock_items = self.database.get_all_items(con)
 
@@ -338,9 +354,15 @@ class StockViewer(wx.Frame):
                                     self.table_headers[h][1](getattr(i, self.table_headers[h][0]))
                                     for h in self.table_headers])
 
-
-    def update_table(self, e):
-        pass
+    def update_table_size(self, e=None):
+        #print("Resizing:", time.time())
+        list_size = self.stock_list.GetSize()
+        print("list size:", list_size)
+        taken_space = 0
+        for c in range(len(self.table_headers)):
+            taken_space += self.stock_list.GetColumnWidth(c) if c != self.column_to_expand else 0
+        new_width = (list_size[0] - taken_space) - 1
+        self.stock_list.SetColumnWidth(self.column_to_expand, new_width)
 
     def on_close(self, e):
         self.open = False
