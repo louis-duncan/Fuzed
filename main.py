@@ -1,8 +1,6 @@
 import database_io
 from gui import *
-
-TITLE = "Fuzed"
-
+from globals import *
 
 db = database_io.init()
 app = wx.App(False)
