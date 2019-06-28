@@ -1,11 +1,18 @@
+import _thread
 import time
+
+import easygui as easygui
 
 import database_io
 import wx
+from globals import *
 from wx.richtext import RichTextCtrl
+from wx.lib import sized_controls
 
 
 class Launcher(wx.Frame):
+    database: database_io.DatabaseHandler
+
     def __init__(self, parent, frame_id, title, database):
         super().__init__(parent,
                          frame_id,
@@ -50,6 +57,12 @@ class Launcher(wx.Frame):
                                               size=(150, 50))
         buttons.append(self.control_panel_button)
 
+        self.edit_label = wx.StaticText(panel,
+                                        wx.ID_ANY,
+                                        "")
+        self.edit_label.SetForegroundColour((255, 255, 255))  # set text color
+        self.edit_label.SetBackgroundColour((255, 0, 0))  # set text back color
+
         i = 0
         for i, b in enumerate(buttons):
             main_sizer.Add(b,
@@ -70,6 +83,10 @@ class Launcher(wx.Frame):
         main_sizer.Add(pos=(3 + len(buttons), 4),
                        size=(10, 10))
 
+        main_sizer.Add(self.edit_label,
+                       pos=(len(buttons) + 3, 1),
+                       )
+
         panel.SetSizerAndFit(main_sizer)
 
         self.Fit()
@@ -79,6 +96,8 @@ class Launcher(wx.Frame):
         self.Bind(wx.EVT_BUTTON, self.stock_button_clicked, self.stock_button)
         self.Bind(wx.EVT_BUTTON, self.events_button_clicked, self.events_button)
         self.Bind(wx.EVT_BUTTON, self.control_panel_button_clicked, self.control_panel_button)
+
+        _thread.start_new_thread(self.keep_label_updated, tuple())
 
         self.Show()
 
@@ -135,34 +154,68 @@ class Launcher(wx.Frame):
                                         b[1],
                                         body_style)
 
+    def keep_label_updated(self):
+        while True:
+            time.sleep(1)
+            self.edit_label.SetLabelText("  Editing Enabled  " if global_editing else "")
+
     def event_clicked(self, e):
         print("Clicked:", e.String)
 
     def stock_button_clicked(self, e):
         print("Stock Button Clicked")
-        if self.stock_viewer is None or not self.stock_viewer.open:
+        if self.stock_viewer is not None and self.stock_viewer.open:
+            self.stock_viewer.Restore()
+            self.stock_viewer.Raise()
+        else:
             self.stock_viewer = StockViewer(self,
                                             wx.ID_ANY,
                                             self.title,
                                             self.database)
-        else:
-            self.stock_viewer.Raise()
 
     def events_button_clicked(self, e):
         print("Events Button Clicked")
 
     def control_panel_button_clicked(self, e):
         print("Control Panel Button Clicked")
+        #input_dlg = LoginDialog(self, title=self.title + " - Login")
+        input_dlg = wx.TextEntryDialog(self, "Message")
+        resp = input_dlg.ShowModal()
+        if resp == wx.ID_OK:
+            pass
+        else:
+            return
+        # TODO: finish!
+        print(input_dlg.GetValues())
+
+        return
+
+        with self.database.open_database_connection() as con:
+            valid = self.database.validate_user(con, credentials[0], credentials[1], True)
+
+        if valid:
+            pass
+        else:
+            pass
+
+        if self.control_panel is not None and self.control_panel.open:
+            self.control_panel.Restore()
+            self.control_panel.Raise()
+        else:
+            self.control_panel = ControlPanel(self,
+                                              wx.ID_ANY,
+                                              self.title,
+                                              self.database)
 
 
 class StockViewer(wx.Frame):
     def __init__(self, parent, frame_id, title, database: database_io.DatabaseHandler):
+        self.title = title + " - Stock Viewer"
         super().__init__(parent,
                          frame_id,
-                         title + " - Stock Viewer",
+                         self.title,
                          style=wx.DEFAULT_FRAME_STYLE)
         self.Maximize(True)
-        self.title = title
         self.database = database
         self.open = True
 
@@ -186,7 +239,7 @@ class StockViewer(wx.Frame):
 
         for i, h in enumerate(self.table_headers.keys()):
             self.stock_list.InsertColumn(i, h)
-            #self.stock_list.SetColumnWidth(i, self.table_headers[h][2])
+            # self.stock_list.SetColumnWidth(i, self.table_headers[h][2])
 
         # Create and populate the controls area.
         controls_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -306,8 +359,7 @@ class StockViewer(wx.Frame):
         self.Bind(wx.EVT_LISTBOX, self.classification_filter_changed, self.classifications_select)
         self.Bind(wx.EVT_BUTTON, self.create_button_clicked, self.create_new_button)
         self.Bind(wx.EVT_SIZING, self.update_table_size)
-        #self.Bind(wx.EVT_MAXIMIZE, self.update_table_size)
-
+        # self.Bind(wx.EVT_MAXIMIZE, self.update_table_size)
 
         self.populate_table(None)
         self.update_table_size(None)
@@ -315,7 +367,7 @@ class StockViewer(wx.Frame):
     def create_button_clicked(self, e=None):
         for i, h in enumerate(self.table_headers):
             print(h, ":", self.stock_list.GetColumnWidth(i))
-        self.WarpPointer(-10,-10)
+        self.WarpPointer(-10, -10)
 
     def category_filter_changed(self, e):
         # Do stuff
@@ -355,7 +407,7 @@ class StockViewer(wx.Frame):
                                     for h in self.table_headers])
 
     def update_table_size(self, e=None):
-        #print("Resizing:", time.time())
+        # print("Resizing:", time.time())
         list_size = self.stock_list.GetSize()
         print("list size:", list_size)
         taken_space = 0
@@ -367,3 +419,110 @@ class StockViewer(wx.Frame):
     def on_close(self, e):
         self.open = False
         e.Skip()
+
+
+class ControlPanel(wx.Frame):
+    def __init__(self, parent, frame_id, title, database: database_io.DatabaseHandler):
+        self.title = title + " - Control Panel"
+        super().__init__(parent,
+                         frame_id,
+                         self.title,
+                         style=wx.DEFAULT_FRAME_STYLE)
+        self.database = database
+        self.open = True
+
+        self.Show()
+
+        # Bindings
+        self.Bind(wx.EVT_CLOSE, self.on_close)
+
+    def on_close(self, e):
+        self.open = False
+        e.Skip()
+
+
+class LoginDialog(sized_controls.SizedDialog):
+    def __init__(self, *args, **kwargs):
+        super(LoginDialog, self).__init__(*args, **kwargs)
+        panel = self.GetContentsPane()
+
+        user_prompt = wx.StaticText(panel,
+                                    wx.ID_ANY,
+                                    "Username:")
+        self.user_entry = wx.SearchCtrl(panel, size=(200, -1), style=wx.TE_PROCESS_ENTER)
+        self.user_entry.SetDescriptiveText("Username...")
+        self.user_entry.ShowSearchButton(False)
+
+        pass_prompt = wx.StaticText(panel,
+                                    wx.ID_ANY,
+                                    "Password:")
+        self.pass_entry = wx.SearchCtrl(panel, size=(200, -1), style=wx.TE_PASSWORD | wx.TE_PROCESS_ENTER)
+        self.pass_entry.SetDescriptiveText("Password...")
+        self.pass_entry.ShowSearchButton(False)
+
+        main_sizer = wx.GridBagSizer(10, 10)
+
+        main_sizer.Add(wx.StaticText(panel,
+                                     wx.ID_OK,
+                                     "Enter login credentials:"),
+                       pos=(0, 0),
+                       span=(1, 2),
+                       flag=wx.ALIGN_CENTER)
+
+        main_sizer.Add(user_prompt,
+                       pos=(1, 0),
+                       flag=wx.ALIGN_CENTRE_VERTICAL)
+        main_sizer.Add(self.user_entry,
+                       pos=(1, 1))
+        main_sizer.Add(pass_prompt,
+                       pos=(2, 0),
+                       flag=wx.ALIGN_CENTRE_VERTICAL)
+        main_sizer.Add(self.pass_entry,
+                       pos=(2, 1))
+
+        panel_buttons = wx.BoxSizer(wx.HORIZONTAL)
+
+        self.button_ok = wx.Button(panel, wx.ID_OK, label='Login')
+        panel_buttons.Add(self.button_ok)
+        self.button_ok.Bind(wx.EVT_BUTTON, self.on_button)
+
+        button_cancel = wx.Button(panel, wx.ID_CANCEL, label='Cancel')
+        panel_buttons.Add(button_cancel)
+        button_cancel.Bind(wx.EVT_BUTTON, self.on_button)
+
+        main_sizer.Add(panel_buttons,
+                       pos=(3, 0),
+                       span=(1, 2),
+                       flag=wx.ALIGN_CENTER)
+
+        panel.SetSizerAndFit(main_sizer)
+
+        self.Bind(wx.EVT_TEXT_ENTER, self.enter_in_username, self.user_entry)
+        self.Bind(wx.EVT_TEXT_ENTER, self.enter_in_password, self.pass_entry)
+        self.Bind(wx.EVT_CHAR_HOOK, self.catch_tab)
+
+        self.Fit()
+
+    def catch_tab(self, e=None):
+        if e.GetKeyCode() == wx.WXK_TAB and self.user_entry.HasFocus():
+            self.pass_entry.SetFocus()
+        e.Skip()
+
+    def enter_in_username(self, e=None):
+        print("Enter in user box")
+        self.pass_entry.SetFocus()
+
+    def enter_in_password(self, e=None):
+        if self.IsModal():
+            self.EndModal(wx.ID_OK)
+        else:
+            self.Close()
+
+    def on_button(self, event):
+        if self.IsModal():
+            self.EndModal(event.EventObject.Id)
+        else:
+            self.Close()
+
+    def GetValues(self):
+        return self.user_entry.GetLineText(0), self.pass_entry.GetLineText(0)
