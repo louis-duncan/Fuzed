@@ -148,7 +148,7 @@ class DatabaseHandler:
     def update_show(self, show_obj):
         pass
 
-    def validate_user(self, con, user_name, password, sign_in=True):
+    def validate_user(self, con, user_name, password, sign_in=False):
         user = con.one("SELECT * FROM users WHERE name=?", (user_name.lower(),))
 
         if user is None:
@@ -159,12 +159,12 @@ class DatabaseHandler:
         hasher.update(binascii.unhexlify(user.pass_salt))
         valid = hasher.hexdigest() == user.pass_hash
 
-        if sign_in and valid:
+        if valid:
             con.run("UPDATE users SET last_login_time=?  WHERE user_id=?", (datetime.datetime.now(), user.user_id))
             con.connection.commit()
+
+        if sign_in:
             self.__signed_in_user = user.user_id
-        else:
-            pass
 
         return valid
 
