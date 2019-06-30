@@ -215,7 +215,8 @@ class StockViewer(wx.Frame):
                          frame_id,
                          self.title,
                          style=wx.DEFAULT_FRAME_STYLE)
-        self.Maximize(True)
+        self.title = title
+        #self.Maximize(True)
         self.database = database
         self.open = True
 
@@ -224,22 +225,22 @@ class StockViewer(wx.Frame):
                                       size=(-1, -1),
                                       style=wx.LC_REPORT | wx.LC_HRULES)
 
-        self.table_headers = {"SKU": ("sku", lambda x: str(x).zfill(6), 80),
-                              "Product ID": ("product_id", lambda x: x, 80),
-                              "Description": ("description", lambda x: x, -1),
-                              "Category": ("category", lambda x: x, 80),
-                              "Classification": ("classification", lambda x: x, 100),
-                              "Unit Cost": ("unit_cost", lambda x: "£{:.2f}".format(x), 80),
+        self.table_headers = {"SKU": ("sku", lambda x: str(x).zfill(6), 50),
+                              "Product ID": ("product_id", lambda x: x, 70),
+                              "Description": ("description", lambda x: x, 235),
+                              "Category": ("category", lambda x: x, 70),
+                              "Classification": ("classification", lambda x: x, 85),
+                              "Unit Cost": ("unit_cost", lambda x: "£{:.2f}".format(x), 65),
                               "Unit Weight": ("unit_weight", lambda x: "{:.2f}kg".format(x), 80),
                               "NEC Weight": ("nec_weight", lambda x: "{:.2f}kg".format(x), 80),
-                              "Calibre": ("calibre", lambda x: "{}mm".format(x), 80),
-                              "Duration": ("duration", lambda x: "{}s".format(x), 80),
-                              "Low Noise": ("low_noise", lambda x: "Yes" if x else "No", 80)}
+                              "Calibre": ("calibre", lambda x: "{}mm".format(x), 75),
+                              "Duration": ("duration", lambda x: "{}s".format(x), 60),
+                              "Low Noise": ("low_noise", lambda x: "Yes" if x else "No", 70)}
         self.column_to_expand = 2
 
         for i, h in enumerate(self.table_headers.keys()):
             self.stock_list.InsertColumn(i, h)
-            # self.stock_list.SetColumnWidth(i, self.table_headers[h][2])
+            self.stock_list.SetColumnWidth(i, self.table_headers[h][2])
 
         # Create and populate the controls area.
         controls_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -407,9 +408,7 @@ class StockViewer(wx.Frame):
                                     for h in self.table_headers])
 
     def update_table_size(self, e=None):
-        # print("Resizing:", time.time())
         list_size = self.stock_list.GetSize()
-        print("list size:", list_size)
         taken_space = 0
         for c in range(len(self.table_headers)):
             taken_space += self.stock_list.GetColumnWidth(c) if c != self.column_to_expand else 0
