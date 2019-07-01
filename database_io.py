@@ -164,9 +164,26 @@ class DatabaseHandler:
             con.connection.commit()
 
         if sign_in:
-            self.__signed_in_user = user.user_id
+            self.__signed_in_user = User(user.user_id, user.name, user.auth_level)
 
         return valid
+
+    def reset_user_password(self, con, user_name):
+        new_password = "".join([chr(random.randint(0, 25) + 97) for i in range(8)])
+        new_salt = bytes([random.randint(0, 255) for i in range(32)])
+        new_hex_salt = binascii.hexlify(new_salt)
+
+        hasher = hashlib.sha3_256()
+        hasher.update(new_password.encode())
+        hasher.update(new_salt)
+
+        new_hash = hasher.hexdigest()
+
+        con.run("UPDATE users SET pass_hash=?, pass_salt=? WHERE name=?",
+                (new_hash, new_hex_salt, user_name.lower()))
+        con.connection.commit()
+
+        return new_password
 
     def set_user_password(self, con, user_name, current_password, new_password):
         """
