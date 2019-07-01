@@ -1,8 +1,6 @@
 import _thread
 import time
 
-import easygui as easygui
-
 import database_io
 import wx
 from globals import *
@@ -17,7 +15,8 @@ class Launcher(wx.Frame):
         super().__init__(parent,
                          frame_id,
                          title,
-                         style=wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX))
+                         style=wx.DEFAULT_FRAME_STYLE, #& ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
+                         )
 
         self.title = title
 
@@ -29,8 +28,6 @@ class Launcher(wx.Frame):
 
         panel = wx.Panel(self, -1)
 
-        main_sizer = wx.GridBagSizer()
-
         self.upcoming_text_lbl = wx.StaticText(panel,
                                                label="Upcoming Events:")
 
@@ -40,22 +37,22 @@ class Launcher(wx.Frame):
                                           size=(300, 300))
         self.upcoming_text.Caret.Hide()
 
-        buttons = []
-
         self.stock_button = wx.Button(panel,
                                       label="Stock",
                                       size=(150, 50))
-        buttons.append(self.stock_button)
 
         self.events_button = wx.Button(panel,
                                        label="Events",
                                        size=(150, 50))
-        buttons.append(self.events_button)
 
         self.control_panel_button = wx.Button(panel,
                                               label="Control Panel",
                                               size=(150, 50))
-        buttons.append(self.control_panel_button)
+        self.control_panel_button.Disable()
+
+        self.user_button = wx.Button(panel,
+                                     label="Login",
+                                     size=(150, 50))
 
         self.edit_label = wx.StaticText(panel,
                                         wx.ID_ANY,
@@ -63,29 +60,27 @@ class Launcher(wx.Frame):
         self.edit_label.SetForegroundColour((255, 255, 255))  # set text color
         self.edit_label.SetBackgroundColour((255, 0, 0))  # set text back color
 
-        i = 0
-        for i, b in enumerate(buttons):
-            main_sizer.Add(b,
-                           pos=(2 * i + 1, 3),
-                           span=(1, 1))
-            if i != len(buttons) - 1:
-                main_sizer.Add(pos=(2 * i + 2, 3),
-                               size=(5, 5))
+        button_sizer = wx.BoxSizer(wx.VERTICAL)
+        button_sizer.AddSpacer(5)
+        button_sizer.Add(self.stock_button, 0)
+        button_sizer.Add(self.events_button, 0)
+        button_sizer.Add(self.control_panel_button, 0)
+        button_sizer.Add(0, 0, 1, flag=wx.EXPAND)
+        button_sizer.Add(self.user_button, 0)
+        button_sizer.AddSpacer(5)
 
-        main_sizer.Add(self.upcoming_text_lbl,
-                       pos=(0, 1),
-                       span=(1, 1))
+        info_sizer = wx.BoxSizer(wx.VERTICAL)
 
-        main_sizer.Add(self.upcoming_text,
-                       pos=(1, 1),
-                       span=(len(buttons) + 2, 1))
+        info_sizer.Add(self.upcoming_text_lbl)
+        info_sizer.Add(self.upcoming_text, proportion=1, flag=wx.EXPAND)
+        info_sizer.Add(self.edit_label)
 
-        main_sizer.Add(pos=(3 + len(buttons), 4),
-                       size=(10, 10))
-
-        main_sizer.Add(self.edit_label,
-                       pos=(len(buttons) + 3, 1),
-                       )
+        main_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        main_sizer.AddSpacer(5)
+        main_sizer.Add(info_sizer, proportion=1, flag=wx.EXPAND)
+        main_sizer.AddSpacer(5)
+        main_sizer.Add(button_sizer, flag=wx.EXPAND)
+        main_sizer.AddSpacer(5)
 
         panel.SetSizerAndFit(main_sizer)
 
@@ -96,6 +91,7 @@ class Launcher(wx.Frame):
         self.Bind(wx.EVT_BUTTON, self.stock_button_clicked, self.stock_button)
         self.Bind(wx.EVT_BUTTON, self.events_button_clicked, self.events_button)
         self.Bind(wx.EVT_BUTTON, self.control_panel_button_clicked, self.control_panel_button)
+        self.Bind(wx.EVT_BUTTON, self.user_button_clicked, self.user_button)
 
         _thread.start_new_thread(self.keep_label_updated, tuple())
 
@@ -157,7 +153,11 @@ class Launcher(wx.Frame):
     def keep_label_updated(self):
         while True:
             time.sleep(1)
-            self.edit_label.SetLabelText("  Editing Enabled  " if global_editing else "")
+            if self.database.signed_in_user() is None:
+                text = ""
+            else:
+                text = " {} signed in. ".format(self.database.signed_in_user().name)
+            self.edit_label.SetLabelText(text)
 
     def event_clicked(self, e):
         print("Clicked:", e.String)
@@ -178,25 +178,6 @@ class Launcher(wx.Frame):
 
     def control_panel_button_clicked(self, e):
         print("Control Panel Button Clicked")
-        #input_dlg = LoginDialog(self, title=self.title + " - Login")
-        input_dlg = wx.TextEntryDialog(self, "Message")
-        resp = input_dlg.ShowModal()
-        if resp == wx.ID_OK:
-            pass
-        else:
-            return
-        # TODO: finish!
-        print(input_dlg.GetValues())
-
-        return
-
-        with self.database.open_database_connection() as con:
-            valid = self.database.validate_user(con, credentials[0], credentials[1], True)
-
-        if valid:
-            pass
-        else:
-            pass
 
         if self.control_panel is not None and self.control_panel.open:
             self.control_panel.Restore()
@@ -207,6 +188,44 @@ class Launcher(wx.Frame):
                                               self.title,
                                               self.database)
 
+    def user_button_clicked(self, e=None):
+        if self.database.signed_in_user() is None:
+            input_dlg = LoginDialog(self, title=self.title + " - Login")
+
+            resp = input_dlg.ShowModal()
+
+            if resp == wx.ID_OK:
+                pass
+            else:
+                return
+
+            credentials = input_dlg.GetValues()
+
+            with self.database.open_database_connection() as con:
+                valid = self.database.validate_user(con, credentials[0], credentials[1], True)
+
+            if valid:
+                print("Valid")
+            else:
+                print("Invalid")
+                dlg = wx.MessageDialog(self, "Login Failed\n\n"
+                                             "Invalid credentials.",
+                                       style=wx.OK | wx.ICON_EXCLAMATION,
+                                       caption="Login Failed")
+                dlg.ShowModal()
+                return
+            self.login()
+        else:
+            self.logout()
+
+    def login(self):
+        assert self.database.signed_in_user() is not None
+        self.control_panel_button.Enable()
+
+    def logout(self):
+        self.control_panel_button.Disable()
+        self.database.sign_out()
+
 
 class StockViewer(wx.Frame):
     def __init__(self, parent, frame_id, title, database: database_io.DatabaseHandler):
@@ -216,7 +235,7 @@ class StockViewer(wx.Frame):
                          self.title,
                          style=wx.DEFAULT_FRAME_STYLE)
         self.title = title
-        #self.Maximize(True)
+        # self.Maximize(True)
         self.database = database
         self.open = True
 
@@ -430,14 +449,25 @@ class ControlPanel(wx.Frame):
         self.database = database
         self.open = True
 
+        if database.signed_in_user() is None:
+            dlg = wx.MessageDialog(self, "YOU SHOULDN'T BE HERE!!!!\n\n"
+                                         "The control panel tried to open without a user being signed in.",
+                                   style=wx.OK | wx.ICON_EXCLAMATION,
+                                   caption=">:(")
+            dlg.ShowModal()
+            self.open = False
+            self.Destroy()
+            return
+
         self.Show()
 
         # Bindings
         self.Bind(wx.EVT_CLOSE, self.on_close)
 
-    def on_close(self, e):
+    def on_close(self, e=None):
         self.open = False
-        e.Skip()
+        if e is not None:
+            e.Skip()
 
 
 class LoginDialog(sized_controls.SizedDialog):
@@ -448,16 +478,12 @@ class LoginDialog(sized_controls.SizedDialog):
         user_prompt = wx.StaticText(panel,
                                     wx.ID_ANY,
                                     "Username:")
-        self.user_entry = wx.SearchCtrl(panel, size=(200, -1), style=wx.TE_PROCESS_ENTER)
-        self.user_entry.SetDescriptiveText("Username...")
-        self.user_entry.ShowSearchButton(False)
+        self.user_entry = wx.TextCtrl(panel, wx.ID_ANY, size=(200, -1), style=wx.TE_PROCESS_ENTER)
 
         pass_prompt = wx.StaticText(panel,
                                     wx.ID_ANY,
                                     "Password:")
-        self.pass_entry = wx.SearchCtrl(panel, size=(200, -1), style=wx.TE_PASSWORD | wx.TE_PROCESS_ENTER)
-        self.pass_entry.SetDescriptiveText("Password...")
-        self.pass_entry.ShowSearchButton(False)
+        self.pass_entry = wx.TextCtrl(panel, wx.ID_ANY, size=(200, -1), style=wx.TE_PASSWORD | wx.TE_PROCESS_ENTER)
 
         main_sizer = wx.GridBagSizer(10, 10)
 
@@ -498,14 +524,8 @@ class LoginDialog(sized_controls.SizedDialog):
 
         self.Bind(wx.EVT_TEXT_ENTER, self.enter_in_username, self.user_entry)
         self.Bind(wx.EVT_TEXT_ENTER, self.enter_in_password, self.pass_entry)
-        self.Bind(wx.EVT_CHAR_HOOK, self.catch_tab)
 
         self.Fit()
-
-    def catch_tab(self, e=None):
-        if e.GetKeyCode() == wx.WXK_TAB and self.user_entry.HasFocus():
-            self.pass_entry.SetFocus()
-        e.Skip()
 
     def enter_in_username(self, e=None):
         print("Enter in user box")
