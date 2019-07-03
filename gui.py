@@ -93,8 +93,6 @@ class Launcher(wx.Frame):
         self.Bind(wx.EVT_BUTTON, self.control_panel_button_clicked, self.control_panel_button)
         self.Bind(wx.EVT_BUTTON, self.user_button_clicked, self.user_button)
 
-        _thread.start_new_thread(self.keep_label_updated, tuple())
-
         self.Show()
 
     def update_upcoming(self):
@@ -149,15 +147,6 @@ class Launcher(wx.Frame):
             self.upcoming_text.SetStyle(b[0],
                                         b[1],
                                         body_style)
-
-    def keep_label_updated(self):
-        while True:
-            time.sleep(1)
-            if self.database.signed_in_user() is None:
-                text = ""
-            else:
-                text = " {} signed in. ".format(self.database.signed_in_user().name)
-            self.edit_label.SetLabelText(text)
 
     def event_clicked(self, e):
         print("Clicked:", e.String)
@@ -221,10 +210,14 @@ class Launcher(wx.Frame):
     def login(self):
         assert self.database.signed_in_user() is not None
         self.control_panel_button.Enable()
+        self.user_button.SetLabelText("Logout")
+        self.edit_label.SetLabelText(" {} logged in. ".format(self.database.signed_in_user().name))
 
     def logout(self):
         self.control_panel_button.Disable()
         self.database.sign_out()
+        self.user_button.SetLabelText("Login")
+        self.edit_label.SetLabelText("")
 
 
 class StockViewer(wx.Frame):
