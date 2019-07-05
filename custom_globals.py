@@ -1,0 +1,2 @@
+# Constants
+TITLE = "Fuzed"
