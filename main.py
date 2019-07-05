@@ -1,6 +1,6 @@
 import database_io
 from gui import *
-from globals import *
+from custom_globals import *
 
 db = database_io.init()
 app = wx.App(False)
