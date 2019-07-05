@@ -1,9 +1,7 @@
-import _thread
-import time
-
 import database_io
 import wx
-from globals import *
+import events
+from custom_globals import *
 from wx.richtext import RichTextCtrl
 from wx.lib import sized_controls
 
@@ -99,54 +97,61 @@ class Launcher(wx.Frame):
         with self.database.open_database_connection() as con:
             shows = self.database.get_shows(con)
 
-        text = ""
-        underlines = []
-        headers = []
-        bodies = []
-        for s in shows:
-            underline = [len(text), 0]
-            text += s.date_time.ctime() + "\n"
-            underline[1] = len(text) - 1
+        if len(shows) == 0:
+            text = "No Upcoming Shows"
+            self.upcoming_text.SetValue(text)
+            bold_style = wx.TextAttr()
+            bold_style.SetFontWeight(wx.FONTWEIGHT_BOLD)
+            self.upcoming_text.SetStyle(0, len(text) - 1, bold_style)
+        else:
+            text = ""
+            underlines = []
+            headers = []
+            bodies = []
+            for s in shows:
+                underline = [len(text), 0]
+                text += s.date_time.ctime() + "\n"
+                underline[1] = len(text) - 1
 
-            header = [len(text), 0]
-            text += s.show_title + "\n"
-            header[1] = len(text) - 1
+                header = [len(text), 0]
+                text += s.show_title + "\n"
+                header[1] = len(text) - 1
 
-            body = [len(text), 0]
-            text += s.show_description
-            body[1] = len(text) - 1
+                body = [len(text), 0]
+                text += s.show_description
+                body[1] = len(text) - 1
 
-            text += "\n\n"
+                text += "\n\n"
 
-            underlines.append(underline)
-            headers.append(header)
-            bodies.append(body)
+                underlines.append(underline)
+                headers.append(header)
+                bodies.append(body)
 
-        self.upcoming_text.SetValue(text)
+            self.upcoming_text.SetValue(text)
 
-        for i, u in enumerate(underlines):
-            new_style = wx.TextAttr()
-            new_style.SetFontUnderlined(True)
-            new_style.SetURL(str(shows[i].show_id))
-            self.upcoming_text.SetStyle(u[0],
-                                        u[1],
-                                        new_style)
+            for i, u in enumerate(underlines):
+                new_style = wx.TextAttr()
+                new_style.SetFontUnderlined(True)
+                new_style.SetURL(str(shows[i].show_id))
+                self.upcoming_text.SetStyle(u[0],
+                                            u[1],
+                                            new_style)
 
-        head_style = wx.TextAttr()
-        head_style.SetFontWeight(wx.FONTWEIGHT_BOLD)
+            head_style = wx.TextAttr()
+            head_style.SetFontWeight(wx.FONTWEIGHT_BOLD)
 
-        for h in headers:
-            self.upcoming_text.SetStyle(h[0],
-                                        h[1],
-                                        head_style)
+            for h in headers:
+                self.upcoming_text.SetStyle(h[0],
+                                            h[1],
+                                            head_style)
 
-        body_style = wx.TextAttr()
-        body_style.SetFontStyle(wx.FONTSTYLE_ITALIC)
+            body_style = wx.TextAttr()
+            body_style.SetFontStyle(wx.FONTSTYLE_ITALIC)
 
-        for b in bodies:
-            self.upcoming_text.SetStyle(b[0],
-                                        b[1],
-                                        body_style)
+            for b in bodies:
+                self.upcoming_text.SetStyle(b[0],
+                                            b[1],
+                                            body_style)
 
     def event_clicked(self, e):
         print("Clicked:", e.String)
@@ -154,8 +159,10 @@ class Launcher(wx.Frame):
     def stock_button_clicked(self, e):
         print("Stock Button Clicked")
         if self.stock_viewer is not None and self.stock_viewer.open:
+            self.stock_viewer.Show()
             self.stock_viewer.Restore()
             self.stock_viewer.Raise()
+            self.stock_viewer.Refresh()
         else:
             self.stock_viewer = StockViewer(self,
                                             wx.ID_ANY,
@@ -169,6 +176,7 @@ class Launcher(wx.Frame):
         print("Control Panel Button Clicked")
 
         if self.control_panel is not None and self.control_panel.open:
+            self.Show()
             self.control_panel.Restore()
             self.control_panel.Raise()
         else:
@@ -231,8 +239,10 @@ class StockViewer(wx.Frame):
         # self.Maximize(True)
         self.database = database
         self.open = True
+        self.item_viewers = []
 
         # Setup ListCtrl
+        self.stock_items = None
         self.stock_list = wx.ListCtrl(self,
                                       size=(-1, -1),
                                       style=wx.LC_REPORT | wx.LC_HRULES)
@@ -359,7 +369,6 @@ class StockViewer(wx.Frame):
         main_sizer.SetSizeHints(self)
 
         self.SetSizerAndFit(main_sizer)
-
         self.Show()
 
         # Bindings
@@ -371,8 +380,9 @@ class StockViewer(wx.Frame):
         self.Bind(wx.EVT_LISTBOX, self.category_filter_changed, self.categories_select)
         self.Bind(wx.EVT_LISTBOX, self.classification_filter_changed, self.classifications_select)
         self.Bind(wx.EVT_BUTTON, self.create_button_clicked, self.create_new_button)
+        self.Bind(wx.EVT_BUTTON, self.edit_button_clicked, self.edit_button)
         self.Bind(wx.EVT_SIZING, self.update_table_size)
-        # self.Bind(wx.EVT_MAXIMIZE, self.update_table_size)
+        self.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.edit_button_clicked, self.stock_list)
 
         self.populate_table(None)
         self.update_table_size(None)
@@ -381,6 +391,28 @@ class StockViewer(wx.Frame):
         for i, h in enumerate(self.table_headers):
             print(h, ":", self.stock_list.GetColumnWidth(i))
         self.WarpPointer(-10, -10)
+
+    def purge_viewers(self):
+        for v in self.item_viewers:
+            if not v.open:
+                self.item_viewers.remove(v)
+
+    def edit_button_clicked(self, e=None):
+        sku = self.stock_list.GetItem(self.stock_list.GetFirstSelected(), 0).GetText()
+        found = False
+        self.purge_viewers()
+        for v in self.item_viewers:
+            if v.sku == sku:
+                v.Restore()
+                v.Raise()
+                found = True
+                break
+            else:
+                pass
+        if found:
+            pass
+        else:
+            self.item_viewers.append(ItemViewer(self, wx.ID_ANY, title=None, database=self.database, sku=sku))
 
     def category_filter_changed(self, e):
         # Do stuff
@@ -411,10 +443,13 @@ class StockViewer(wx.Frame):
             self.classifications_select.Check(i, False)
 
     def populate_table(self, e=None):
-        with self.database.open_database_connection() as con:
-            stock_items = self.database.get_all_items(con)
 
-        for i in stock_items:
+        with self.database.open_database_connection() as con:
+            self.stock_items = self.database.get_all_items(con)
+
+        self.stock_list.DeleteAllItems()
+
+        for i in self.stock_items:
             self.stock_list.Append(["" if getattr(i, self.table_headers[h][0]) is None else
                                     self.table_headers[h][1](getattr(i, self.table_headers[h][0]))
                                     for h in self.table_headers])
@@ -427,14 +462,65 @@ class StockViewer(wx.Frame):
         new_width = (list_size[0] - taken_space) - 1
         self.stock_list.SetColumnWidth(self.column_to_expand, new_width)
 
-    def on_close(self, e):
+    def on_close(self, e=None):
+        self.purge_viewers()
+        if len(self.item_viewers) > 0:
+            self.Hide()
+        else:
+            self.open = False
+            if e is not None:
+                e.Skip()
+
+    def Refresh(self, e=None):
+        self.populate_table(e)
+
+
+class ItemViewer(wx.Frame):
+    def __init__(self, parent, frame_id, title, database: database_io.DatabaseHandler, sku):
+        if title is None:
+            self.title = TITLE + " - Stock Viewer - {}".format(sku)
+        else:
+            self.title = title
+        super().__init__(parent,
+                         frame_id,
+                         self.title,
+                         style=wx.DEFAULT_FRAME_STYLE)
+
+        self.title = title
+        self.database = database
+        self.open = True
+        self.sku = sku
+
+        with self.database.open_database_connection() as con:
+            item = database.get_item(con, sku)
+
+        if item is None:
+            dlg = wx.MessageDialog(self, "Database Lookup Error\n\n"
+                                         "Failed to find item {} in the database.".format(sku),
+                                   style=wx.OK | wx.ICON_EXCLAMATION,
+                                   caption="{} - Lookup Error".format(TITLE))
+            dlg.ShowModal()
+            self.Destroy()
+            return
+
+        # Bindings
+        self.Bind(wx.EVT_CLOSE, self.on_close)
+
+        self.Show()
+
+    def on_close(self, e=None):
+        print(type(e))
         self.open = False
-        e.Skip()
+        if e is not None:
+            e.Skip()
 
 
 class ControlPanel(wx.Frame):
     def __init__(self, parent, frame_id, title, database: database_io.DatabaseHandler):
-        self.title = title + " - Control Panel"
+        if title is None:
+            self.title = TITLE + " - Control Panel"
+        else:
+            self.title = title
         super().__init__(parent,
                          frame_id,
                          self.title,
