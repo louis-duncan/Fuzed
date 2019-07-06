@@ -104,7 +104,8 @@ class DatabaseHandler:
                                                                                 handle.expired()))
 
     def get_item(self, con: NewSQL, sku):
-        return con.one("SELECT * FROM stock_items WHERE sku IS ?", (sku, ))
+        record = con.one("SELECT * FROM stock_items WHERE sku IS ?", (sku, ))
+        return record
 
     def get_items_by_category(self, con, categories, text_filter=""):
         if type(categories) in (list, tuple):
