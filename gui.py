@@ -189,16 +189,14 @@ class Launcher(wx.Frame):
         if self.database.signed_in_user() is None:
             input_dlg = LoginDialog(self, title=self.title + " - Login")
 
-            credentials = ("default", "password")
+            resp = input_dlg.ShowModal()
 
-            # resp = input_dlg.ShowModal()
+            if resp == wx.ID_OK:
+                pass
+            else:
+                return
 
-            # if resp == wx.ID_OK:
-            #    pass
-            # else:
-            #    return
-
-            # credentials = input_dlg.GetValues()
+            credentials = input_dlg.GetValues()
 
             with self.database.open_database_connection() as con:
                 valid = self.database.validate_user(con, credentials[0], credentials[1], True)
@@ -229,6 +227,9 @@ class Launcher(wx.Frame):
         self.database.sign_out()
         self.user_button.SetLabelText("Login")
         self.login_label.SetLabelText("")
+        if self.control_panel.open:
+            self.control_panel.on_close()
+            self.control_panel.Destroy()
 
 
 class StockViewer(wx.Frame):
@@ -603,7 +604,7 @@ class ControlPanel(wx.Frame):
 
         # Bindings
         self.Bind(wx.EVT_CLOSE, self.on_close)
-        # Buttons
+        # Button Bindings
         self.Bind(wx.EVT_BUTTON, self.add_new_user, self.new_user_button)
 
         self.Show()
@@ -617,10 +618,18 @@ class ControlPanel(wx.Frame):
             return
         username, password, priv = dlg.GetValues()
 
+        with self.database.open_database_connection() as con:
+            self.database.create_user(con, username, password, priv)#
+
+        return "Hello world"
+
     def on_close(self, e=None):
         self.open = False
         if e is not None:
             e.Skip()
+
+    def refresh_user_list(self, e=None):
+
 
 
 class LoginDialog(sized_controls.SizedDialog):
@@ -718,8 +727,12 @@ class NewUserDialog(sized_controls.SizedDialog):
 
         pass_prompt_two = wx.StaticText(panel,
                                         wx.ID_ANY,
-                                        "Renter Password:")
+                                        "Re-enter Password:")
         self.pass_entry_two = wx.TextCtrl(panel, wx.ID_ANY, size=(200, -1), style=wx.TE_PASSWORD | wx.TE_PROCESS_ENTER)
+        self.auth_selector = wx.Choice(panel,
+                                       choices=["Administrator",
+                                                "Standard"])
+        self.auth_selector.SetSelection(1)
 
         main_sizer = wx.BoxSizer(wx.VERTICAL)
 
@@ -745,8 +758,8 @@ class NewUserDialog(sized_controls.SizedDialog):
                          flag=wx.ALIGN_RIGHT)
         inputs_sizer.Add(self.pass_entry_two,
                          pos=(2, 1))
-
-        #TODO: Add auth level selection.
+        inputs_sizer.Add(self.auth_selector,
+                         pos=(0, 2))
 
         main_sizer.AddSpacer(10)
         main_sizer.Add(inputs_sizer)
@@ -812,4 +825,9 @@ class NewUserDialog(sized_controls.SizedDialog):
             self.Close()
 
     def GetValues(self):
-        return 1, 2, 3
+        assert self.user_entry.GetValue() not in self.taken
+        assert len(self.user_entry.GetValue()) >= 3
+        assert self.pass_entry_one.GetValue() == self.pass_entry_two.GetValue()
+        assert self.pass_entry_one.GetValue() != ""
+
+        return self.user_entry.GetValue(), self.pass_entry_one.GetValue(), self.auth_selector.GetSelection() + 1
