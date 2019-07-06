@@ -21,6 +21,7 @@ class DatabaseTimeoutError(Exception):
 
 class NewSQL(sql.SQL):
     def __init__(self, connection, handle_path, uid):
+
         super().__init__(connection)
 
         self._handle_path = handle_path
@@ -77,6 +78,9 @@ class NewSQL(sql.SQL):
     def has_handle(self):
         current_handle = self._get_handle()
         return (current_handle is not None) and (current_handle.holder == self._uid) and (not current_handle.expired())
+    
+    def commit(self):
+        self.connection.commit()
 
 
 class DatabaseHandler:
@@ -152,6 +156,14 @@ class DatabaseHandler:
     def update_show(self, show_obj):
         pass
 
+    def create_user(self, con: NewSQL, username, password, auth_level):
+        pass_hash, pass_salt = hash_salt_gen(password)
+        con.run("INSERT INTO users (name, auth_level, pass_hash, pass_salt) VALUES (?, ?, ?, ?)", (username,
+                                                                                                   auth_level,
+                                                                                                   pass_hash,
+                                                                                                   pass_salt))
+        con.commit()
+
     def validate_user(self, con, user_name, password, sign_in=False):
         user = con.one("SELECT * FROM users WHERE name=?", (user_name.lower(),))
 
@@ -174,17 +186,11 @@ class DatabaseHandler:
 
     def reset_user_password(self, con, user_name):
         new_password = "".join([chr(random.randint(0, 25) + 97) for i in range(8)])
-        new_salt = bytes([random.randint(0, 255) for i in range(32)])
-        new_hex_salt = binascii.hexlify(new_salt)
 
-        hasher = hashlib.sha3_256()
-        hasher.update(new_password.encode())
-        hasher.update(new_salt)
-
-        new_hash = hasher.hexdigest()
+        new_hash, new_salt = hash_salt_gen(new_password)
 
         con.run("UPDATE users SET pass_hash=?, pass_salt=? WHERE name=?",
-                (new_hash, new_hex_salt, user_name.lower()))
+                (new_hash, new_salt, user_name.lower()))
         con.connection.commit()
 
         return new_password
@@ -200,17 +206,10 @@ class DatabaseHandler:
             return False
 
         # noinspection PyUnusedLocal
-        new_salt = bytes([random.randint(0, 255) for i in range(32)])
-        new_hex_salt = binascii.hexlify(new_salt)
-
-        hasher = hashlib.sha3_256()
-        hasher.update(new_password.encode())
-        hasher.update(new_salt)
-
-        new_hash = hasher.hexdigest()
+        new_hash, new_salt = hash_salt_gen(new_password)
 
         con.run("UPDATE users SET pass_hash=?, pass_salt=? WHERE name=?",
-                (new_hash, new_hex_salt, user_name.lower()))
+                (new_hash, new_salt, user_name.lower()))
         con.connection.commit()
 
         return True
@@ -309,6 +308,16 @@ def load_config(config_path="config.cfg"):
             parts = [p.strip() for p in l.split("=")]
             if len(parts) == 2 and parts[0].isupper():
                 globals()[parts[0]] = parts[1]
+
+
+def hash_salt_gen(password):
+    new_salt = bytes([random.randint(0, 255) for i in range(32)])
+    new_hex_salt = binascii.hexlify(new_salt)
+    hasher = hashlib.sha3_256()
+    hasher.update(password.encode())
+    hasher.update(new_salt)
+    new_hash = hasher.hexdigest()
+    return new_hash, new_hex_salt
 
 
 def init():

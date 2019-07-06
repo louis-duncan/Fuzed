@@ -1,4 +1,3 @@
-import database_io
 from gui import *
 from custom_globals import *
 
