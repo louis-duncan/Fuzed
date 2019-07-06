@@ -13,7 +13,7 @@ class Launcher(wx.Frame):
         super().__init__(parent,
                          frame_id,
                          title,
-                         style=wx.DEFAULT_FRAME_STYLE, #& ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
+                         style=wx.DEFAULT_FRAME_STYLE,  # & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
                          )
 
         self.title = title
@@ -52,11 +52,11 @@ class Launcher(wx.Frame):
                                      label="Login",
                                      size=(150, 50))
 
-        self.edit_label = wx.StaticText(panel,
-                                        wx.ID_ANY,
-                                        "")
-        self.edit_label.SetForegroundColour((255, 255, 255))  # set text color
-        self.edit_label.SetBackgroundColour((255, 0, 0))  # set text back color
+        self.login_label = wx.StaticText(panel,
+                                         wx.ID_ANY,
+                                         "")
+        self.login_label.SetForegroundColour((255, 255, 255))  # set text color
+        self.login_label.SetBackgroundColour((255, 0, 0))  # set text back color
 
         button_sizer = wx.BoxSizer(wx.VERTICAL)
         button_sizer.AddSpacer(5)
@@ -71,7 +71,7 @@ class Launcher(wx.Frame):
 
         info_sizer.Add(self.upcoming_text_lbl)
         info_sizer.Add(self.upcoming_text, proportion=1, flag=wx.EXPAND)
-        info_sizer.Add(self.edit_label)
+        info_sizer.Add(self.login_label)
 
         main_sizer = wx.BoxSizer(wx.HORIZONTAL)
         main_sizer.AddSpacer(5)
@@ -110,7 +110,7 @@ class Launcher(wx.Frame):
             bodies = []
             for s in shows:
                 underline = [len(text), 0]
-                text += s.date_time.ctime() + "\n"
+                text += "{:%d/%m/%Y %H:%M}".format(s.date_time) + "\n"
                 underline[1] = len(text) - 1
 
                 header = [len(text), 0]
@@ -182,21 +182,23 @@ class Launcher(wx.Frame):
         else:
             self.control_panel = ControlPanel(self,
                                               wx.ID_ANY,
-                                              self.title,
+                                              None,
                                               self.database)
 
     def user_button_clicked(self, e=None):
         if self.database.signed_in_user() is None:
             input_dlg = LoginDialog(self, title=self.title + " - Login")
 
-            resp = input_dlg.ShowModal()
+            credentials = ("default", "password")
 
-            if resp == wx.ID_OK:
-                pass
-            else:
-                return
+            # resp = input_dlg.ShowModal()
 
-            credentials = input_dlg.GetValues()
+            # if resp == wx.ID_OK:
+            #    pass
+            # else:
+            #    return
+
+            # credentials = input_dlg.GetValues()
 
             with self.database.open_database_connection() as con:
                 valid = self.database.validate_user(con, credentials[0], credentials[1], True)
@@ -217,15 +219,16 @@ class Launcher(wx.Frame):
 
     def login(self):
         assert self.database.signed_in_user() is not None
-        self.control_panel_button.Enable()
+        if self.database.signed_in_user().auth_level <= 1:
+            self.control_panel_button.Enable()
         self.user_button.SetLabelText("Logout")
-        self.edit_label.SetLabelText(" {} logged in. ".format(self.database.signed_in_user().name))
+        self.login_label.SetLabelText(" {} logged in. ".format(self.database.signed_in_user().name))
 
     def logout(self):
         self.control_panel_button.Disable()
         self.database.sign_out()
         self.user_button.SetLabelText("Login")
-        self.edit_label.SetLabelText("")
+        self.login_label.SetLabelText("")
 
 
 class StockViewer(wx.Frame):
@@ -398,6 +401,8 @@ class StockViewer(wx.Frame):
                 self.item_viewers.remove(v)
 
     def edit_button_clicked(self, e=None):
+        if self.stock_list.GetFirstSelected() == -1:
+            return
         sku = self.stock_list.GetItem(self.stock_list.GetFirstSelected(), 0).GetText()
         found = False
         self.purge_viewers()
@@ -492,9 +497,9 @@ class ItemViewer(wx.Frame):
         self.sku = sku
 
         with self.database.open_database_connection() as con:
-            item = database.get_item(con, sku)
+            self.item = database.get_item(con, sku)
 
-        if item is None:
+        if self.item is None:
             dlg = wx.MessageDialog(self, "Database Lookup Error\n\n"
                                          "Failed to find item {} in the database.".format(sku),
                                    style=wx.OK | wx.ICON_EXCLAMATION,
@@ -502,6 +507,8 @@ class ItemViewer(wx.Frame):
             dlg.ShowModal()
             self.Destroy()
             return
+
+        text = wx.StaticText(self, wx.ID_ANY, self.item.description)
 
         # Bindings
         self.Bind(wx.EVT_CLOSE, self.on_close)
@@ -528,9 +535,10 @@ class ControlPanel(wx.Frame):
         self.database = database
         self.open = True
 
-        if database.signed_in_user() is None:
+        if database.signed_in_user() is None or database.signed_in_user().auth_level > 1:
             dlg = wx.MessageDialog(self, "YOU SHOULDN'T BE HERE!!!!\n\n"
-                                         "The control panel tried to open without a user being signed in.",
+                                         "The control panel tried to open without a user being signed in, "
+                                         "or with a user who was not authorised.",
                                    style=wx.OK | wx.ICON_EXCLAMATION,
                                    caption=">:(")
             dlg.ShowModal()
@@ -538,10 +546,76 @@ class ControlPanel(wx.Frame):
             self.Destroy()
             return
 
-        self.Show()
+        main_panel = wx.Panel(self, -1)
+
+        # Setup
+        user_controls_box = wx.StaticBox(main_panel, label="Users:")
+        user_controls_sizer = wx.StaticBoxSizer(user_controls_box, wx.HORIZONTAL)
+        user_controls_buttons_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        self.user_list = wx.ListCtrl(user_controls_box,
+                                     size=(-1, -1),
+                                     style=wx.LC_REPORT | wx.LC_HRULES)
+        self.user_list.InsertColumn(0, "User")
+        self.user_list.SetColumnWidth(0, 250)
+        self.user_list.InsertColumn(1, "Privilege")
+        self.user_list.SetColumnWidth(1, 150)
+
+        self.new_user_button = wx.Button(user_controls_box,
+                                         label="Add New User",
+                                         size=(120, 35))
+        self.change_username_button = wx.Button(user_controls_box,
+                                                label="Change Username",
+                                                size=(120, 35))
+        self.change_username_button.Disable()
+        self.reset_password_button = wx.Button(user_controls_box,
+                                               label="Reset Password",
+                                               size=(120, 35))
+        self.reset_password_button.Disable()
+        self.remove_user_button = wx.Button(user_controls_box,
+                                            label="Remove User",
+                                            size=(120, 35))
+        self.remove_user_button.Disable()
+
+        user_controls_buttons_sizer.Add(self.new_user_button)
+        user_controls_buttons_sizer.Add(self.change_username_button)
+        user_controls_buttons_sizer.Add(self.reset_password_button)
+        user_controls_buttons_sizer.Add(self.remove_user_button)
+
+        user_controls_sizer.Add(self.user_list)
+        user_controls_sizer.AddSpacer(3)
+        user_controls_sizer.Add(user_controls_buttons_sizer)
+
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
+        side_margin_sizer = wx.BoxSizer(wx.HORIZONTAL)
+
+        main_sizer.AddSpacer(10)
+        main_sizer.Add(user_controls_sizer)
+        main_sizer.AddSpacer(10)
+
+        side_margin_sizer.AddSpacer(10)
+        side_margin_sizer.Add(main_sizer)
+        side_margin_sizer.AddSpacer(10)
+
+        main_panel.SetSizerAndFit(side_margin_sizer)
+
+        self.Fit()
 
         # Bindings
         self.Bind(wx.EVT_CLOSE, self.on_close)
+        # Buttons
+        self.Bind(wx.EVT_BUTTON, self.add_new_user, self.new_user_button)
+
+        self.Show()
+
+    def add_new_user(self, e=None):
+        with self.database.open_database_connection() as con:
+            taken = con.all("SELECT name FROM users")
+        dlg = NewUserDialog(self, title=self.title + " - New User", taken=taken)
+        resp = dlg.ShowModal()
+        if resp != wx.ID_OK:
+            return
+        username, password, priv = dlg.GetValues()
 
     def on_close(self, e=None):
         self.open = False
@@ -624,3 +698,118 @@ class LoginDialog(sized_controls.SizedDialog):
 
     def GetValues(self):
         return self.user_entry.GetLineText(0), self.pass_entry.GetLineText(0)
+
+
+class NewUserDialog(sized_controls.SizedDialog):
+    def __init__(self, *args, **kwargs):
+        self.taken = kwargs.pop("taken")
+        super(NewUserDialog, self).__init__(*args, **kwargs)
+        panel = self.GetContentsPane()
+
+        user_prompt = wx.StaticText(panel,
+                                    wx.ID_ANY,
+                                    "Username:")
+        self.user_entry = wx.TextCtrl(panel, wx.ID_ANY, size=(200, -1), style=wx.TE_PROCESS_ENTER)
+
+        pass_prompt_one = wx.StaticText(panel,
+                                        wx.ID_ANY,
+                                        "New Password:")
+        self.pass_entry_one = wx.TextCtrl(panel, wx.ID_ANY, size=(200, -1), style=wx.TE_PASSWORD | wx.TE_PROCESS_ENTER)
+
+        pass_prompt_two = wx.StaticText(panel,
+                                        wx.ID_ANY,
+                                        "Renter Password:")
+        self.pass_entry_two = wx.TextCtrl(panel, wx.ID_ANY, size=(200, -1), style=wx.TE_PASSWORD | wx.TE_PROCESS_ENTER)
+
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        main_sizer.Add(wx.StaticText(panel,
+                                     wx.ID_OK,
+                                     "Enter new user details:"),
+                       flag=wx.ALIGN_CENTER)
+
+        inputs_sizer = wx.GridBagSizer(10, 10)
+
+        inputs_sizer.Add(user_prompt,
+                         pos=(0, 0),
+                         flag=wx.ALIGN_RIGHT)
+        inputs_sizer.Add(self.user_entry,
+                         pos=(0, 1))
+        inputs_sizer.Add(pass_prompt_one,
+                         pos=(1, 0),
+                         flag=wx.ALIGN_RIGHT)
+        inputs_sizer.Add(self.pass_entry_one,
+                         pos=(1, 1))
+        inputs_sizer.Add(pass_prompt_two,
+                         pos=(2, 0),
+                         flag=wx.ALIGN_RIGHT)
+        inputs_sizer.Add(self.pass_entry_two,
+                         pos=(2, 1))
+
+        #TODO: Add auth level selection.
+
+        main_sizer.AddSpacer(10)
+        main_sizer.Add(inputs_sizer)
+
+        panel_buttons = wx.BoxSizer(wx.HORIZONTAL)
+
+        self.button_ok = wx.Button(panel, wx.ID_OK, label='Confirm')
+        self.button_ok.Disable()
+        panel_buttons.Add(self.button_ok)
+        self.button_ok.Bind(wx.EVT_BUTTON, self.on_button)
+
+        button_cancel = wx.Button(panel, wx.ID_CANCEL, label='Cancel')
+        panel_buttons.Add(button_cancel)
+        button_cancel.Bind(wx.EVT_BUTTON, self.on_button)
+
+        main_sizer.AddSpacer(10)
+        main_sizer.Add(panel_buttons,
+                       flag=wx.ALIGN_CENTER)
+
+        self.status_text = wx.StaticText(panel, label="", size=(250, 20), style=wx.ALIGN_CENTER_HORIZONTAL)
+        self.status_text.SetBackgroundColour((200, 200, 200))
+        main_sizer.AddSpacer(10)
+        main_sizer.Add(self.status_text,
+                       flag=wx.ALIGN_CENTRE)
+
+        panel.SetSizerAndFit(main_sizer)
+
+        self.Bind(wx.EVT_TEXT, self.change)
+
+        self.Fit()
+
+    def change(self, e=None):
+        valid = False
+        errors = []
+        if len(self.user_entry.GetValue()) == 0:
+            errors.append("Username required.")
+        if self.user_entry.GetValue().lower() in self.taken:
+            errors.append("Username not available.")
+        if 0 < len(self.user_entry.GetValue()) < 3:
+            errors.append("Username must have 3 of more characters.")
+        if self.pass_entry_one.GetValue() == "":
+            errors.append("Password required.")
+        if self.pass_entry_two.GetValue() == "":
+            errors.append("Re-enter password.")
+        if self.pass_entry_one.GetValue() != self.pass_entry_two.GetValue():
+            errors.append("Passwords do not match!")
+
+        if len(errors) > 0:
+            self.button_ok.Disable()
+            self.status_text.SetLabelText(errors[0])
+            self.status_text.SetBackgroundColour((255, 0, 0))
+            self.status_text.SetForegroundColour((255, 255, 255))
+        else:
+            self.button_ok.Enable()
+            self.status_text.SetLabelText("Details valid.")
+            self.status_text.SetBackgroundColour((0, 200, 0))
+            self.status_text.SetForegroundColour((255, 255, 255))
+
+    def on_button(self, event):
+        if self.IsModal():
+            self.EndModal(event.EventObject.Id)
+        else:
+            self.Close()
+
+    def GetValues(self):
+        return 1, 2, 3
