@@ -158,14 +158,23 @@ class DatabaseHandler:
 
     def create_user(self, con: NewSQL, username, password, auth_level):
         pass_hash, pass_salt = hash_salt_gen(password)
-        con.run("INSERT INTO users (name, auth_level, pass_hash, pass_salt) VALUES (?, ?, ?, ?)", (username,
+        con.run("INSERT INTO users (name, auth_level, pass_hash, pass_salt) VALUES (?, ?, ?, ?)", (username.lower(),
                                                                                                    auth_level,
                                                                                                    pass_hash,
                                                                                                    pass_salt))
         con.commit()
 
+    def get_users(self, con: NewSQL):
+        return [User(r) for r in con.all("SELECT user_id, name, auth_level FROM users")]
+
     def validate_user(self, con, user_name, password, sign_in=False):
-        user = con.one("SELECT * FROM users WHERE name=?", (user_name.lower(),))
+        assert type(user_name) in (str, int)
+        if type(user_name) is str:
+            user = con.one("SELECT * FROM users WHERE name=?", (user_name.lower(),))
+        elif type(user_name) is int:
+            user = con.one("SELECT * FROM users WHERE user_id=?", (user_name,))
+        else:
+            user = None
 
         if user is None:
             return False
@@ -184,6 +193,16 @@ class DatabaseHandler:
 
         return valid
 
+    def change_username(self, con, user_id, user_name):
+        assert user_id not in con.all("SELECT name FROM users")
+        con.run("UPDATE users SET name=? WHERE user_id=?", (user_name.lower(), user_id))
+        con.commit()
+
+    def change_auth_level(self, con, user_id, auth_level):
+        assert type(auth_level) is int
+        con.run("UPDATE users SET auth_level=? WHERE user_id=?", (auth_level, user_id))
+        con.commit()
+
     def reset_user_password(self, con, user_name):
         new_password = "".join([chr(random.randint(0, 25) + 97) for i in range(8)])
 
@@ -195,21 +214,18 @@ class DatabaseHandler:
 
         return new_password
 
-    def set_user_password(self, con, user_name, current_password, new_password):
+    def set_user_password(self, con, user_id, new_password):
         """
         :type con: NewSQL
-        :param user_name: str
-        :param current_password: str
+        :param user_id: int
         :param new_password: str
         """
-        if not self.validate_user(con, user_name, current_password, False):
-            return False
 
         # noinspection PyUnusedLocal
         new_hash, new_salt = hash_salt_gen(new_password)
 
-        con.run("UPDATE users SET pass_hash=?, pass_salt=? WHERE name=?",
-                (new_hash, new_salt, user_name.lower()))
+        con.run("UPDATE users SET pass_hash=?, pass_salt=? WHERE user_id=?",
+                (new_hash, new_salt, user_id))
         con.connection.commit()
 
         return True
@@ -230,6 +246,10 @@ class DatabaseHandler:
         result = con.one(q, p)
 
         return result
+
+    def delete_user(self, con, user_id):
+        con.run("DELETE FROM users WHERE user_id=?", (user_id,))
+        con.commit()
 
     def sign_out(self):
         self.__signed_in_user = None
@@ -310,6 +330,12 @@ def load_config(config_path="config.cfg"):
                 globals()[parts[0]] = parts[1]
 
 
+def create_database(path):
+    # Make tables
+    # Create default user
+    pass
+
+
 def hash_salt_gen(password):
     new_salt = bytes([random.randint(0, 255) for i in range(32)])
     new_hex_salt = binascii.hexlify(new_salt)
@@ -322,6 +348,8 @@ def hash_salt_gen(password):
 
 def init():
     load_config()
+    if not os.path.exists(DATABASE_PATH):
+        create_database(DATABASE_PATH)
     return DatabaseHandler(DATABASE_PATH)
 
 
