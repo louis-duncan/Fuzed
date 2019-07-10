@@ -79,9 +79,17 @@ class ShowChange:
 class User:
     def __init__(self,
                  user_id,
-                 name,
-                 auth_level):
-        self.user_id = user_id
-        self.name = name
-        self.auth_level = auth_level
+                 name=None,
+                 auth_level=None):
+        if name is None or auth_level is None:
+            record = user_id
+            self.user_id = int(record.user_id)
+            self.name = str(record.name)
+            self.auth_level = int(record.auth_level)
+        else:
+            self.user_id = user_id
+            self.name = name
+            self.auth_level = auth_level
 
+    def __repr__(self):
+        return "User: {} - Name: {} - Auth Level: {}".format(self.user_id, self.name, self.auth_level)
