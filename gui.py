@@ -7,7 +7,6 @@ from wx.richtext import RichTextCtrl
 from wx.lib import sized_controls
 
 
-
 class Launcher(wx.Frame):
     database: database_io.DatabaseHandler
 
@@ -410,16 +409,14 @@ class StockViewer(wx.Frame):
         found = False
         self.purge_viewers()
         for v in self.item_viewers:
-            if v.sku == sku:
+            if v.sku_val == sku:
                 v.Restore()
                 v.Raise()
                 found = True
                 break
             else:
                 pass
-        if found:
-            pass
-        else:
+        if not found:
             self.item_viewers.append(ItemViewer(self, wx.ID_ANY, title=None, database=self.database, sku=sku))
 
     def category_filter_changed(self, e):
@@ -497,16 +494,16 @@ class ItemViewer(wx.Frame):
         self.title = title
         self.database = database
         self.open = True
-        self.sku = sku
+        self.sku_val = sku
 
         with self.database.open_database_connection() as con:
-            self.item = database.get_item(con, sku)
+            self.item = database.get_item(con, self.sku_val)
             category_choices = con.all("SELECT category_text FROM stock_categories")
             classification_choices = con.all("SELECT classification_text FROM stock_classifications")
 
         if self.item is None:
             dlg = wx.MessageDialog(self, "Database Lookup Error\n\n"
-                                         "Failed to find item {} in the database.".format(sku),
+                                         "Failed to find item {} in the database.".format(self.sku_val),
                                    style=wx.OK | wx.ICON_EXCLAMATION,
                                    caption="{} - Lookup Error".format(TITLE))
             dlg.ShowModal()
@@ -533,17 +530,17 @@ class ItemViewer(wx.Frame):
         self.classification = wx.Choice(panel, choices=classification_choices)
         column_one["Class"] = self.classification
 
-        self.calibre = wx.SpinCtrlDouble(panel, value="0", min=1, max=1000, inc=0.2)
+        self.calibre = wx.SpinCtrlDouble(panel, value="", min=1, max=1000, inc=0.2)
         column_one["Calibre (mm)"] = self.calibre
 
-        self.unit_cost = wx.SpinCtrlDouble(panel, value="0.00", min=0, max=10000, inc=0.1)
+        self.unit_cost = wx.SpinCtrlDouble(panel, value="", min=0, max=10000, inc=0.1)
         self.unit_cost.SetDigits(2)
         column_one["Unit Cost (£)"] = self.unit_cost
 
-        self.unit_weight = wx.SpinCtrlDouble(panel, value="0.0", min=0, max=10000, inc=0.1)
+        self.unit_weight = wx.SpinCtrlDouble(panel, value="", min=0, max=10000, inc=0.1)
         column_one["Unit Weight (kg)"] = self.unit_weight
 
-        self.nec_weight = wx.SpinCtrlDouble(panel, value="0.00", min=0, max=10000, inc=0.1)
+        self.nec_weight = wx.SpinCtrlDouble(panel, value="", min=0, max=10000, inc=0.1)
         column_one["NEC Weight (kg)"] = self.nec_weight
 
         self.case_size = wx.SpinCtrl(panel, value="0", min=1, max=10000)
@@ -558,10 +555,10 @@ class ItemViewer(wx.Frame):
         # Control in col 2
         column_two = {}
 
-        self.shots = wx.SpinCtrl(panel, value="0", min=0, max=10000)
+        self.shots = wx.SpinCtrl(panel, value="", min=0, max=10000)
         column_two["Shots"] = self.shots
 
-        self.duration = wx.SpinCtrl(panel, value="0", min=0, max=10000)
+        self.duration = wx.SpinCtrl(panel, value="", min=0, max=10000)
         column_two["Duration (secs)"] = self.duration
 
         self.notes = wx.TextCtrl(panel, style=wx.TE_MULTILINE)
@@ -583,8 +580,18 @@ class ItemViewer(wx.Frame):
         self.hidden = wx.Choice(panel, choices=("No", "Yes"))
         column_two["Hidden"] = self.hidden
 
-        self.quantity = wx.SpinCtrl(panel, value="0", min=0, max=10000)
+        self.quantity = wx.SpinCtrl(panel, value="", min=0, max=10000)
         column_two["Quantity on Hand"] = self.quantity
+
+        col_two_gap = (20, 20)
+        column_two["none_2"] = col_two_gap
+
+        self.save_button = wx.Button(panel, label="Save Changes")
+        self.save_button.Disable()
+        column_two["none_3"] = self.save_button
+
+        col_two_gap_two = (0, 0)
+        column_two["none_4"] = col_two_gap_two
 
         # Add col 1 things
         column_one_sizer = wx.GridBagSizer(5, 5)
@@ -603,18 +610,22 @@ class ItemViewer(wx.Frame):
         # Add col 2 things
         column_two_sizer = wx.GridBagSizer(5, 5)
         for i, k in enumerate(column_two):
+            # Add label, if it doesn't start with 'none', allows for labels to be ommitted.
             if not k.startswith("none"):
                 column_two_sizer.Add(wx.StaticText(panel, label=k + ":"),
                                      (i, 0),
                                      flag=wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT)
+            # Add control object.
             if k in ("Notes", "Preview Link"):
-                print("expand")
                 column_two_sizer.Add(column_two[k], (i, 1), flag=wx.ALL | wx.EXPAND)
             else:
-                column_two_sizer.Add(column_two[k], (i, 1))
+                if type(column_two[k]) is not tuple:
+                    column_two_sizer.Add(column_two[k], (i, 1))
+                else:
+                    column_two_sizer.Add(column_two[k][0], column_two[k][1], pos=(i, 1))
+
         column_two_sizer.AddGrowableRow(2)
         column_two_sizer.AddGrowableCol(1)
-        column_two_sizer.Add(0,0,pos=(len(column_one.keys()), 0))
 
         v_padding_sizer = wx.BoxSizer(wx.VERTICAL)
         h_padding_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -634,15 +645,56 @@ class ItemViewer(wx.Frame):
         # Bindings
         self.Bind(wx.EVT_CLOSE, self.on_close)
 
+        self.refresh_information()
+
         self.Show()
 
     def open_preview(self, e=None):
         if self.preview_link.GetValue().strip() == "":
             return
         webbrowser.open_new(self.preview_link.GetValue().strip())
+        webbrowser.open(self.preview_link.GetValue())
 
     def refresh_information(self, e=None):
-        pass
+        self.sku.SetValue(str(self.item.sku).zfill(6))
+        if self.item.description is not None:
+            self.description.SetValue(self.item.description)
+        if self.item.classification is not None:
+            self.classification.SetSelection(self.item.classification)
+        if self.item.calibre is not None:
+            self.calibre.SetValue(float(self.item.calibre))
+        if self.item.unit_cost is not None:
+            self.unit_cost.SetValue(float(self.item.unit_cost))
+        if self.item.unit_weight is not None:
+            self.unit_weight.SetValue(float(self.item.unit_weight))
+        if self.item.nec_weight is not None:
+            self.nec_weight.SetValue(float(self.item.nec_weight))
+        if self.item.case_size is not None:
+            self.case_size.SetValue(int(self.item.case_size))
+        if self.item.hse_no is not None:
+            self.hse_no.SetValue(self.item.hse_no)
+        if self.item.ce_no is not None:
+            self.ce_no.SetValue(self.item.ce_no)
+        if self.item.serial_no is not None:
+            self.serial_no.SetValue(self.item.serial_no)
+        if self.item.duration is not None:
+            self.duration.SetValue(float(self.item.duration))
+        if self.item.low_noise is not None:
+            self.low_noise.SetSelection(1 if self.item.low_noise == "True" else 0)
+        if self.item.notes is not None:
+            self.notes.SetValue(self.item.notes)
+        if self.item.preview_link is not None:
+            self.preview_link.SetValue(self.item.preview_link)
+        if self.item.category is not None:
+            self.category.SetSelection(self.item.category)
+        if self.item.hidden is not None:
+            self.hidden.SetSelection(1 if self.item.hidden == "True" else 0)
+        if self.item.product_id is not None:
+            self.product_id.SetValue(self.item.product_id)
+        if self.item.shots is not None:
+            self.shots.SetValue(self.item.shots)
+
+        # Todo add stock level check
 
     def on_close(self, e=None):
         print(type(e))
