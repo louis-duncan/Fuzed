@@ -2,13 +2,11 @@ import binascii
 import hashlib
 import random
 import sqlite3
-from typing import Optional, Any
 
 import sql
 import os
 import pickle
 import time
-import datetime
 from database_structs import *
 
 
@@ -107,7 +105,7 @@ class DatabaseHandler:
                                                                                 handle.expiry.ctime(),
                                                                                 handle.expired()))
 
-    def get_item(self, con: NewSQL, sku):
+    def get_item(self, con: NewSQL, sku: str) -> StockItem:
         record = con.one("SELECT * FROM stock_items WHERE sku IS ?", (sku, ))
         return record
 
