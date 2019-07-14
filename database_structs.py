@@ -4,8 +4,8 @@ import datetime
 class StockItem:
     def __init__(self,
                  sku,
-                 product_id,
-                 description,
+                 product_id="",
+                 description="",
                  category=0,
                  classification=0,
                  calibre=0.0,
@@ -20,26 +20,34 @@ class StockItem:
                  low_noise=False,
                  notes="",
                  preview_link="",
-                 hidden=False
+                 hidden=False,
+                 stock_on_hand=0,
+                 shots=0
                  ):
-        self.sku = sku
-        self.product_id = product_id
-        self.description = description
-        self.category = category
-        self.classification = classification
-        self.calibre = calibre
-        self.unit_cost = unit_cost
-        self.unit_weight = unit_weight
-        self.nec_weight = nec_weight
-        self.case_size = case_size
-        self.hse_no = hse_no
-        self.ce_no = ce_no
-        self.serial_no = serial_no
-        self.duration = duration
-        self.low_noise = low_noise
-        self.notes = notes
-        self.preview_link = preview_link
-        self.hidden = hidden
+        if type(sku) in (str, int):
+            self.sku = sku
+            self.product_id = product_id
+            self.description = description
+            self.category = category
+            self.classification = classification
+            self.calibre = calibre
+            self.unit_cost = unit_cost
+            self.unit_weight = unit_weight
+            self.nec_weight = nec_weight
+            self.case_size = case_size
+            self.hse_no = hse_no
+            self.ce_no = ce_no
+            self.serial_no = serial_no
+            self.duration = duration
+            self.low_noise = low_noise
+            self.notes = notes
+            self.preview_link = preview_link
+            self.hidden = hidden
+            self.product_id = product_id
+            self.stock_on_hand = stock_on_hand
+            self.shots = shots
+        else:
+            pass
 
 
 class Show:
