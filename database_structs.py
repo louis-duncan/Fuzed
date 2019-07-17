@@ -47,7 +47,27 @@ class StockItem:
             self.stock_on_hand = stock_on_hand
             self.shots = shots
         else:
-            pass
+            record = sku
+            self.sku = record.sku
+            self.description = record.description
+            self.classification = int(record.classification)
+            self.calibre = int(record.calibre) if record.calibre is not None else None
+            self.unit_cost = float(record.unit_cost) if record.unit_cost is not None else None
+            self.unit_weight = float(record.unit_weight) if record.unit_weight is not None else None
+            self.nec_weight = float(record.nec_weight) if record.nec_weight is not None else None
+            self.case_size = int(record.case_size) if record.case_size is not None else None
+            self.hse_no = record.hse_no
+            self.ce_no = record.ce_no
+            self.serial_no = record.serial_no
+            self.duration = float(record.duration) if record.duration is not None else None
+            self.low_noise = record.low_noise == "True" if record.low_noise is not None else None
+            self.notes = record.notes
+            self.preview_link = record.preview_link
+            self.category = int(record.category) if record.category is not None else None
+            self.hidden = record.hidden == "True" if record.hidden is not None else None
+            self.product_id = record.product_id
+            self.stock_on_hand = int(record.stock_on_hand) if record.stock_on_hand is not None else None
+            self.shots = int(record.shots) if record.shots is not None else None
 
 
 class Show:
