@@ -107,7 +107,7 @@ class DatabaseHandler:
 
     def get_item(self, con: NewSQL, sku: str) -> StockItem:
         record = con.one("SELECT * FROM stock_items WHERE sku IS ?", (sku, ))
-        return record
+        return StockItem(record)
 
     def get_items_by_category(self, con, categories, text_filter=""):
         if type(categories) in (list, tuple):
@@ -131,6 +131,14 @@ class DatabaseHandler:
 
     def update_stock_item(self, stock_item_obj):
         pass
+
+    def get_stock_levels(self, con, sku):
+        """Takes a SKU and returns the stock pn hand and the available stock.
+        :type con: NewSQL
+        """
+        stock_on_hand = sum(con.all("SELECT stock_on_hand FROM stock_items WHERE sku=?", (sku,)))
+        available = stock_on_hand - sum(con.all("SELECT quantity FROM show_items WHERE sku=?", (sku,)))
+        return stock_on_hand, available
 
     def get_shows(self, con, open_only=True, text_filter=""):
         q = "SELECT * FROM shows"
