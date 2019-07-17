@@ -495,6 +495,7 @@ class ItemViewer(wx.Frame):
         self.database = database
         self.open = True
         self.sku_val = sku
+        self.unsaved_changes = False
 
         with self.database.open_database_connection() as con:
             self.item = database.get_item(con, self.sku_val)
@@ -515,7 +516,7 @@ class ItemViewer(wx.Frame):
         # Controls in col 1
         column_one = {}
 
-        self.sku = wx.TextCtrl(panel)
+        self.sku = wx.StaticText(panel)
         column_one["SKU"] = self.sku
 
         self.product_id = wx.TextCtrl(panel)
@@ -530,7 +531,7 @@ class ItemViewer(wx.Frame):
         self.classification = wx.Choice(panel, choices=classification_choices)
         column_one["Class"] = self.classification
 
-        self.calibre = wx.SpinCtrlDouble(panel, value="", min=1, max=1000, inc=0.2)
+        self.calibre = wx.SpinCtrlDouble(panel, value="", min=0, max=1000, inc=0.2)
         column_one["Calibre (mm)"] = self.calibre
 
         self.unit_cost = wx.SpinCtrlDouble(panel, value="", min=0, max=10000, inc=0.1)
@@ -543,7 +544,7 @@ class ItemViewer(wx.Frame):
         self.nec_weight = wx.SpinCtrlDouble(panel, value="", min=0, max=10000, inc=0.1)
         column_one["NEC Weight (kg)"] = self.nec_weight
 
-        self.case_size = wx.SpinCtrl(panel, value="0", min=1, max=10000)
+        self.case_size = wx.SpinCtrl(panel, value="", min=0, max=10000)
         column_one["Case Size"] = self.case_size
 
         self.ce_no = wx.TextCtrl(panel)
@@ -571,7 +572,6 @@ class ItemViewer(wx.Frame):
         column_two["Preview Link"] = self.preview_link
 
         self.preview_button = wx.Button(panel, label="Open Preview")
-        self.Bind(wx.EVT_BUTTON, self.open_preview, self.preview_button)
         column_two["none1"] = self.preview_button
 
         self.hse_no = wx.TextCtrl(panel)
@@ -580,8 +580,11 @@ class ItemViewer(wx.Frame):
         self.hidden = wx.Choice(panel, choices=("No", "Yes"))
         column_two["Hidden"] = self.hidden
 
-        self.quantity = wx.SpinCtrl(panel, value="", min=0, max=10000)
-        column_two["Quantity on Hand"] = self.quantity
+        self.stock_on_hand = wx.SpinCtrl(panel, value="", min=0, max=10000)
+        column_two["Stock on Hand"] = self.stock_on_hand
+
+        self.available = wx.StaticText(panel)
+        column_two["Stock Available"] = self.available
 
         col_two_gap = (20, 20)
         column_two["none_2"] = col_two_gap
@@ -642,21 +645,112 @@ class ItemViewer(wx.Frame):
         panel.SetSizerAndFit(v_padding_sizer)
         self.Fit()
 
-        # Bindings
-        self.Bind(wx.EVT_CLOSE, self.on_close)
-
         self.refresh_information()
 
+        # Bindings
+        self.Bind(wx.EVT_CLOSE, self.on_close)
+        self.Bind(wx.EVT_BUTTON, self.open_preview, self.preview_button)
+        self.Bind(wx.EVT_TEXT, self.check_for_changes)
+        self.Bind(wx.EVT_CHOICE, self.check_for_changes)
+        self.Bind(wx.EVT_BUTTON, self.save_button_clicked, self.save_button)
+
         self.Show()
+
+    def save_button_clicked(self, e=None):
+        error = None
+        if self.database.signed_in_user() is None:
+            error = "Cannot Save\n\nYou are not signed in, so cannot save.\nPlease sign in from the main window."
+        elif self.database.signed_in_user().auth_level > 1:
+            error = "Cannot Save\n\nYou are not authorised to save changes to stock."
+        else:
+            pass
+
+        if error is not None:
+            dlg = wx.MessageDialog(self,
+                                   error,
+                                   TITLE + " - Save")
+            dlg.ShowModal()
+            return
+
+        print("Save code here!")
+
+        self.refresh_information()
+        self.check_for_changes()
+
+    def check_for_changes(self, e=None):
+        self.unsaved_changes = False
+        if (self.item.description if self.item.description is not None else "") != self.description.GetValue():
+            self.unsaved_changes = True
+            # print("Description is changed.")
+        elif (self.item.classification if self.item.classification is not None else "") != self.classification.GetSelection():
+            self.unsaved_changes = True
+            # print("Class is changed.")
+        elif (self.item.calibre if self.item.calibre is not None else 0) != self.calibre.GetValue():
+            self.unsaved_changes = True
+            # print("Calibre is changed.")
+        elif (self.item.unit_cost if self.item.unit_cost is not None else 0) != self.unit_cost.GetValue():
+            self.unsaved_changes = True
+            # print("Unit Cost is changed.")
+        elif (self.item.unit_weight if self.item.unit_weight is not None else 0) != self.unit_weight.GetValue():
+            self.unsaved_changes = True
+            # print("Unit Weight is changed.")
+        elif (self.item.nec_weight if self.item.nec_weight is not None else 0) != self.nec_weight.GetValue():
+            self.unsaved_changes = True
+            # print("NEC Weight is changed.")
+        elif (self.item.case_size if self.item.case_size is not None else 0) != self.case_size.GetValue():
+            self.unsaved_changes = True
+            # print("Case Size is changed.")
+        elif (self.item.hse_no if self.item.hse_no is not None else "") != self.hse_no.GetValue():
+            self.unsaved_changes = True
+            # print("HSE Number is changed.")
+        elif (self.item.ce_no if self.item.ce_no is not None else "") != self.ce_no.GetValue():
+            self.unsaved_changes = True
+            # print("CE Number is changed.")
+        elif (self.item.serial_no if self.item.serial_no is not None else "") != self.serial_no.GetValue():
+            self.unsaved_changes = True
+            # print("Serial Number is changed.")
+        elif (self.item.duration if self.item.duration is not None else "") != self.duration.GetValue():
+            self.unsaved_changes = True
+            # print("Duration is changed.")
+        elif (self.item.low_noise if self.item.low_noise is not None else False) != bool(self.low_noise.GetSelection()):
+            self.unsaved_changes = True
+            # print("Low Noise is changed.)
+        elif (self.item.notes if self.item.notes is not None else "") != self.notes.GetValue():
+            self.unsaved_changes = True
+            # print("Notes is changed.")
+        elif (self.item.preview_link if self.item.preview_link is not None else "") != self.preview_link.GetValue():
+            self.unsaved_changes = True
+            # print("Preview is changed.")
+        elif (self.item.category if self.item.category is not None else "") != self.category.GetSelection():
+            self.unsaved_changes = True
+            # print("Category is changed.")
+        elif (self.item.hidden if self.item.hidden is not None else "") != bool(self.hidden.GetSelection()):
+            self.unsaved_changes = True
+            # print("Hidden is changed.")
+        elif (self.item.product_id if self.item.product_id is not None else "") != self.product_id.GetValue():
+            self.unsaved_changes = True
+            # print("Product ID is changed.")
+        elif (self.item.stock_on_hand if self.item.stock_on_hand is not None else 0) != self.stock_on_hand.GetValue():
+            self.unsaved_changes = True
+            # print("Stock on Hand is changed.")
+        elif (self.item.shots if self.item.shots is not None else 0) != self.shots.GetValue():
+            self.unsaved_changes = True
+            # print("Shots is changed.")
+        else:
+            pass
+
+        if self.unsaved_changes:
+            self.save_button.Enable()
+        else:
+            self.save_button.Disable()
 
     def open_preview(self, e=None):
         if self.preview_link.GetValue().strip() == "":
             return
         webbrowser.open_new(self.preview_link.GetValue().strip())
-        webbrowser.open(self.preview_link.GetValue())
 
     def refresh_information(self, e=None):
-        self.sku.SetValue(str(self.item.sku).zfill(6))
+        self.sku.SetLabelText("  " + str(self.item.sku).zfill(6))
         if self.item.description is not None:
             self.description.SetValue(self.item.description)
         if self.item.classification is not None:
@@ -694,10 +788,24 @@ class ItemViewer(wx.Frame):
         if self.item.shots is not None:
             self.shots.SetValue(self.item.shots)
 
-        # Todo add stock level check
+        with self.database.open_database_connection() as con:
+            stock_on_hand, available = self.database.get_stock_levels(con, self.item.sku)
+
+        self.stock_on_hand.SetValue(stock_on_hand)
+        self.available.SetLabelText("  " + str(available))
 
     def on_close(self, e=None):
-        print(type(e))
+        if self.unsaved_changes:
+            dlg = wx.MessageDialog(self,
+                                   "Unsaved Changes\n\n"
+                                   "There are unsaved changes which will be lost.\n"
+                                   "Would you like to close the window anyway?",
+                                   TITLE + " - Save",
+                                   style=wx.YES_NO | wx.ICON_EXCLAMATION)
+            resp = dlg.ShowModal()
+            if resp == wx.ID_NO:
+                return
+
         self.open = False
         if e is not None:
             e.Skip()
