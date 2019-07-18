@@ -5,6 +5,7 @@ import webbrowser
 from custom_globals import *
 from wx.richtext import RichTextCtrl
 from wx.lib import sized_controls
+from copy import deepcopy
 
 
 class Launcher(wx.Frame):
@@ -514,122 +515,115 @@ class ItemViewer(wx.Frame):
         self.sku_val = sku
         self.unsaved_changes = False
 
+        self.item = None
+        self.live_item = None
+
         with self.database.open_database_connection() as con:
-            self.item = database.get_item(con, self.sku_val)
             category_choices = con.all("SELECT category_text FROM stock_categories")
             classification_choices = con.all("SELECT classification_text FROM stock_classifications")
-
-        if self.item is None:
-            dlg = wx.MessageDialog(self, "Database Lookup Error\n\n"
-                                         "Failed to find item {} in the database.".format(self.sku_val),
-                                   style=wx.OK | wx.ICON_EXCLAMATION,
-                                   caption="{} - Lookup Error".format(TITLE))
-            dlg.ShowModal()
-            self.Destroy()
-            return
 
         panel = wx.Panel(self)
 
         # Controls in col 1
-        column_one = {}
+        self.column_one = {}
 
-        self.sku = wx.StaticText(panel)
-        column_one["SKU"] = self.sku
+        self.sku = wx.StaticText(panel, name="none")
+        self.column_one["SKU"] = self.sku
 
-        self.product_id = wx.TextCtrl(panel)
-        column_one["Product ID"] = self.product_id
+        self.product_id = wx.TextCtrl(panel, name="product_id")
+        self.column_one["Product ID"] = self.product_id
 
-        self.description = wx.TextCtrl(panel, style=wx.TE_MULTILINE)
-        column_one["Description"] = self.description
+        self.description = wx.TextCtrl(panel, name="description", style=wx.TE_MULTILINE)
+        self.column_one["Description"] = self.description
 
-        self.category = wx.Choice(panel, choices=category_choices)
-        column_one["Type"] = self.category
+        self.category = wx.Choice(panel, name="category", choices=category_choices)
+        self.column_one["Type"] = self.category
 
-        self.classification = wx.Choice(panel, choices=classification_choices)
-        column_one["Class"] = self.classification
+        self.classification = wx.Choice(panel, name="classification", choices=classification_choices)
+        self.column_one["Class"] = self.classification
 
-        self.calibre = wx.SpinCtrlDouble(panel, value="", min=0, max=1000, inc=0.2)
-        column_one["Calibre (mm)"] = self.calibre
+        self.calibre = wx.SpinCtrlDouble(panel, name="calibre", value="", min=0, max=1000, inc=0.2)
+        self.column_one["Calibre (mm)"] = self.calibre
 
-        self.unit_cost = wx.SpinCtrlDouble(panel, value="", min=0, max=10000, inc=0.1)
+        self.unit_cost = wx.SpinCtrlDouble(panel, name="unit_cost", value="", min=0, max=10000, inc=0.1)
         self.unit_cost.SetDigits(2)
-        column_one["Unit Cost (£)"] = self.unit_cost
+        self.column_one["Unit Cost (£)"] = self.unit_cost
 
-        self.unit_weight = wx.SpinCtrlDouble(panel, value="", min=0, max=10000, inc=0.1)
-        column_one["Unit Weight (kg)"] = self.unit_weight
+        self.unit_weight = wx.SpinCtrlDouble(panel, name="unit_weight", value="", min=0, max=10000, inc=0.1)
+        self.column_one["Unit Weight (kg)"] = self.unit_weight
 
-        self.nec_weight = wx.SpinCtrlDouble(panel, value="", min=0, max=10000, inc=0.1)
-        column_one["NEC Weight (kg)"] = self.nec_weight
+        self.nec_weight = wx.SpinCtrlDouble(panel, name="nec_weight", value="", min=0, max=10000, inc=0.1)
+        self.column_one["NEC Weight (kg)"] = self.nec_weight
 
-        self.case_size = wx.SpinCtrl(panel, value="", min=0, max=10000)
-        column_one["Case Size"] = self.case_size
+        self.case_size = wx.SpinCtrl(panel, name="case_size", value="", min=0, max=10000)
+        self.column_one["Case Size"] = self.case_size
 
-        self.ce_no = wx.TextCtrl(panel)
-        column_one["CE No'"] = self.ce_no
+        self.ce_no = wx.TextCtrl(panel, name="ce_no")
+        self.column_one["CE No'"] = self.ce_no
 
-        self.serial_no = wx.TextCtrl(panel)
-        column_one["Serial No'"] = self.serial_no
+        self.serial_no = wx.TextCtrl(panel, name="serial_no")
+        self.column_one["Serial No'"] = self.serial_no
 
         # Control in col 2
-        column_two = {}
+        self.column_two = {}
 
-        self.shots = wx.SpinCtrl(panel, value="", min=0, max=10000)
-        column_two["Shots"] = self.shots
+        self.shots = wx.SpinCtrl(panel, name="shots", value="", min=0, max=10000)
+        self.column_two["Shots"] = self.shots
 
-        self.duration = wx.SpinCtrl(panel, value="", min=0, max=10000)
-        column_two["Duration (secs)"] = self.duration
+        self.duration = wx.SpinCtrl(panel, name="duration", value="", min=0, max=10000)
+        self.column_two["Duration (secs)"] = self.duration
 
-        self.notes = wx.TextCtrl(panel, style=wx.TE_MULTILINE)
-        column_two["Notes"] = self.notes
+        self.notes = wx.TextCtrl(panel, name="notes", style=wx.TE_MULTILINE)
+        self.column_two["Notes"] = self.notes
 
-        self.low_noise = wx.Choice(panel, choices=("No", "Yes"))
-        column_two["Low Noise"] = self.low_noise
+        self.low_noise = wx.Choice(panel, name="low_noise", choices=("No", "Yes"))
+        self.column_two["Low Noise"] = self.low_noise
 
-        self.preview_link = wx.TextCtrl(panel)
-        column_two["Preview Link"] = self.preview_link
+        self.preview_link = wx.TextCtrl(panel, name="preview_link")
+        self.column_two["Preview Link"] = self.preview_link
 
-        self.preview_button = wx.Button(panel, label="Open Preview")
-        column_two["none1"] = self.preview_button
+        self.preview_button = wx.Button(panel, name="none", label="Open Preview")
+        self.column_two["none1"] = self.preview_button
 
-        self.hse_no = wx.TextCtrl(panel)
-        column_two["HSE No'"] = self.hse_no
+        self.hse_no = wx.TextCtrl(panel, name="hse_no")
+        self.column_two["HSE No'"] = self.hse_no
 
-        self.hidden = wx.Choice(panel, choices=("No", "Yes"))
-        column_two["Hidden"] = self.hidden
+        self.hidden = wx.Choice(panel, name="hidden", choices=("No", "Yes"))
+        self.column_two["Hidden"] = self.hidden
 
-        self.stock_on_hand = wx.SpinCtrl(panel, value="", min=0, max=10000)
-        column_two["Stock on Hand"] = self.stock_on_hand
+        self.stock_on_hand = wx.SpinCtrl(panel, name="stock_on_hand", value="", min=0, max=10000)
+        self.column_two["Stock on Hand"] = self.stock_on_hand
 
-        self.available = wx.StaticText(panel)
-        column_two["Stock Available"] = self.available
+        self.available = wx.StaticText(panel, name="none")
+        self.column_two["Stock Available"] = self.available
 
         col_two_gap = (20, 20)
-        column_two["none_2"] = col_two_gap
+        self.column_two["none_2"] = col_two_gap
 
-        self.save_button = wx.Button(panel, label="Save Changes")
+        self.save_button = wx.Button(panel, name="none", label="Save Changes")
         self.save_button.Disable()
-        column_two["none_3"] = self.save_button
+        self.column_two["none_3"] = self.save_button
 
         col_two_gap_two = (0, 0)
-        column_two["none_4"] = col_two_gap_two
+        self.column_two["none_4"] = col_two_gap_two
 
         # Add col 1 things
         column_one_sizer = wx.GridBagSizer(5, 5)
-        for i, k in enumerate(column_one):
+        for i, k in enumerate(self.column_one):
             if not k.startswith("none"):
                 column_one_sizer.Add(wx.StaticText(panel, label=k + ":"),
                                      (i, 0),
                                      flag=wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT)
             if k == "Description":
-                column_one_sizer.Add(column_one[k], (i, 1), flag=wx.EXPAND)
+                column_one_sizer.Add(self.column_one[k], (i, 1), flag=wx.EXPAND)
             else:
-                column_one_sizer.Add(column_one[k], (i, 1))
+                column_one_sizer.Add(self.column_one[k], (i, 1))
         column_one_sizer.AddGrowableRow(2)
         column_one_sizer.AddGrowableCol(1)
 
         # Add col 2 things
         column_two_sizer = wx.GridBagSizer(5, 5)
-        for i, k in enumerate(column_two):
+        for i, k in enumerate(self.column_two):
             # Add label, if it doesn't start with 'none', allows for labels to be ommitted.
             if not k.startswith("none"):
                 column_two_sizer.Add(wx.StaticText(panel, label=k + ":"),
@@ -637,12 +631,12 @@ class ItemViewer(wx.Frame):
                                      flag=wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT)
             # Add control object.
             if k in ("Notes", "Preview Link"):
-                column_two_sizer.Add(column_two[k], (i, 1), flag=wx.ALL | wx.EXPAND)
+                column_two_sizer.Add(self.column_two[k], (i, 1), flag=wx.ALL | wx.EXPAND)
             else:
-                if type(column_two[k]) is not tuple:
-                    column_two_sizer.Add(column_two[k], (i, 1))
+                if type(self.column_two[k]) is not tuple:
+                    column_two_sizer.Add(self.column_two[k], (i, 1))
                 else:
-                    column_two_sizer.Add(column_two[k][0], column_two[k][1], pos=(i, 1))
+                    column_two_sizer.Add(self.column_two[k][0], self.column_two[k][1], pos=(i, 1))
 
         column_two_sizer.AddGrowableRow(2)
         column_two_sizer.AddGrowableCol(1)
@@ -689,77 +683,32 @@ class ItemViewer(wx.Frame):
             dlg.ShowModal()
             return
 
-        #Go through all attributes and update the self.item object.
-        self.item.description = self.description.GetValue()
-        #self.item.
-
         with self.database.open_database_connection() as con:
-            self.database.update_item(con, self.item)
+            self.database.update_item(con, self.live_item)
 
         self.refresh_information()
         self.check_for_changes()
 
     def check_for_changes(self, e=None):
-        self.unsaved_changes = False
-        if (self.item.description if self.item.description is not None else "") != self.description.GetValue():
-            self.unsaved_changes = True
-            # print("Description is changed.")
-        elif (self.item.classification if self.item.classification is not None else "") != self.classification.GetSelection():
-            self.unsaved_changes = True
-            # print("Class is changed.")
-        elif (self.item.calibre if self.item.calibre is not None else 0) != self.calibre.GetValue():
-            self.unsaved_changes = True
-            # print("Calibre is changed.")
-        elif (self.item.unit_cost if self.item.unit_cost is not None else 0) != self.unit_cost.GetValue():
-            self.unsaved_changes = True
-            # print("Unit Cost is changed.")
-        elif (self.item.unit_weight if self.item.unit_weight is not None else 0) != self.unit_weight.GetValue():
-            self.unsaved_changes = True
-            # print("Unit Weight is changed.")
-        elif (self.item.nec_weight if self.item.nec_weight is not None else 0) != self.nec_weight.GetValue():
-            self.unsaved_changes = True
-            # print("NEC Weight is changed.")
-        elif (self.item.case_size if self.item.case_size is not None else 0) != self.case_size.GetValue():
-            self.unsaved_changes = True
-            # print("Case Size is changed.")
-        elif (self.item.hse_no if self.item.hse_no is not None else "") != self.hse_no.GetValue():
-            self.unsaved_changes = True
-            # print("HSE Number is changed.")
-        elif (self.item.ce_no if self.item.ce_no is not None else "") != self.ce_no.GetValue():
-            self.unsaved_changes = True
-            # print("CE Number is changed.")
-        elif (self.item.serial_no if self.item.serial_no is not None else "") != self.serial_no.GetValue():
-            self.unsaved_changes = True
-            # print("Serial Number is changed.")
-        elif (self.item.duration if self.item.duration is not None else "") != self.duration.GetValue():
-            self.unsaved_changes = True
-            # print("Duration is changed.")
-        elif (self.item.low_noise if self.item.low_noise is not None else False) != bool(self.low_noise.GetSelection()):
-            self.unsaved_changes = True
-            # print("Low Noise is changed.)
-        elif (self.item.notes if self.item.notes is not None else "") != self.notes.GetValue():
-            self.unsaved_changes = True
-            # print("Notes is changed.")
-        elif (self.item.preview_link if self.item.preview_link is not None else "") != self.preview_link.GetValue():
-            self.unsaved_changes = True
-            # print("Preview is changed.")
-        elif (self.item.category if self.item.category is not None else "") != self.category.GetSelection():
-            self.unsaved_changes = True
-            # print("Category is changed.")
-        elif (self.item.hidden if self.item.hidden is not None else "") != bool(self.hidden.GetSelection()):
-            self.unsaved_changes = True
-            # print("Hidden is changed.")
-        elif (self.item.product_id if self.item.product_id is not None else "") != self.product_id.GetValue():
-            self.unsaved_changes = True
-            # print("Product ID is changed.")
-        elif (self.item.stock_on_hand if self.item.stock_on_hand is not None else 0) != self.stock_on_hand.GetValue():
-            self.unsaved_changes = True
-            # print("Stock on Hand is changed.")
-        elif (self.item.shots if self.item.shots is not None else 0) != self.shots.GetValue():
-            self.unsaved_changes = True
-            # print("Shots is changed.")
+        if e is not None:
+            event_obj = e.GetEventObject()
+            attr = event_obj.GetName()
+            if attr in ("classification", "category"):
+                value = event_obj.GetSelection()
+            elif attr in ("low_noise", "hidden"):
+                value = bool(event_obj.GetSelection())
+            else:
+                value = event_obj.GetValue()
+            self.live_item.__setattr__(attr, value)
+
+        for k in self.item.__dict__.keys():
+            old = self.item.__dict__[k]
+            new = self.live_item.__dict__[k]
+            if old != new and not (old == None and new in (0, "")):
+                self.unsaved_changes = True
+                break
         else:
-            pass
+            self.unsaved_changes = False
 
         if self.unsaved_changes:
             self.save_button.Enable()
@@ -772,49 +721,46 @@ class ItemViewer(wx.Frame):
         webbrowser.open_new(self.preview_link.GetValue().strip())
 
     def refresh_information(self, e=None):
-        self.sku.SetLabelText("  " + str(self.item.sku).zfill(6))
-        if self.item.description is not None:
-            self.description.SetValue(self.item.description)
-        if self.item.classification is not None:
-            self.classification.SetSelection(self.item.classification)
-        if self.item.calibre is not None:
-            self.calibre.SetValue(float(self.item.calibre))
-        if self.item.unit_cost is not None:
-            self.unit_cost.SetValue(float(self.item.unit_cost))
-        if self.item.unit_weight is not None:
-            self.unit_weight.SetValue(float(self.item.unit_weight))
-        if self.item.nec_weight is not None:
-            self.nec_weight.SetValue(float(self.item.nec_weight))
-        if self.item.case_size is not None:
-            self.case_size.SetValue(int(self.item.case_size))
-        if self.item.hse_no is not None:
-            self.hse_no.SetValue(self.item.hse_no)
-        if self.item.ce_no is not None:
-            self.ce_no.SetValue(self.item.ce_no)
-        if self.item.serial_no is not None:
-            self.serial_no.SetValue(self.item.serial_no)
-        if self.item.duration is not None:
-            self.duration.SetValue(float(self.item.duration))
-        if self.item.low_noise is not None:
-            self.low_noise.SetSelection(1 if self.item.low_noise == "True" else 0)
-        if self.item.notes is not None:
-            self.notes.SetValue(self.item.notes)
-        if self.item.preview_link is not None:
-            self.preview_link.SetValue(self.item.preview_link)
-        if self.item.category is not None:
-            self.category.SetSelection(self.item.category)
-        if self.item.hidden is not None:
-            self.hidden.SetSelection(1 if self.item.hidden == "True" else 0)
-        if self.item.product_id is not None:
-            self.product_id.SetValue(self.item.product_id)
-        if self.item.shots is not None:
-            self.shots.SetValue(self.item.shots)
-
         with self.database.open_database_connection() as con:
-            stock_on_hand, available = self.database.get_stock_levels(con, self.item.sku)
+            self.item = self.database.get_item(con, self.sku_val)
+            self.available.SetLabelText("  " + str(self.database.get_stock_levels(con, self.sku_val)[1]))
 
-        self.stock_on_hand.SetValue(stock_on_hand)
-        self.available.SetLabelText("  " + str(available))
+        if self.item is None:
+            dlg = wx.MessageDialog(self, "Database Lookup Error\n\n"
+                                         "Failed to find item {} in the database.".format(self.sku_val),
+                                   style=wx.OK | wx.ICON_EXCLAMATION,
+                                   caption="{} - Lookup Error".format(TITLE))
+            dlg.ShowModal()
+            self.Destroy()
+            return
+
+        self.live_item = deepcopy(self.item)
+
+        self.sku.SetLabelText("  " + str(self.sku_val).zfill(6))
+
+        all_controls = [c for c in self.column_one.values()] + [c for c in self.column_two.values()]
+
+        for c in all_controls:
+            try:
+                attr = c.GetName()
+            except AttributeError:
+                continue
+            if attr == "none":
+                pass
+            elif attr in ("classification", "category"):
+                c.SetSelection(self.item.__getattribute__(attr))
+            elif attr in ("low_noise", "hidden"):
+                c.SetSelection(int(self.item.__getattribute__(attr)))
+            else:
+                raw_val = self.item.__getattribute__(attr)
+                if raw_val is not None:
+                    value = raw_val
+                else:
+                    if type(c) is wx.TextCtrl:
+                        value = ""
+                    elif type(c) in (wx.SpinCtrl, wx.SpinCtrlDouble):
+                        value = 0
+                c.SetValue(value)
 
     def on_close(self, e=None):
         if self.unsaved_changes:
