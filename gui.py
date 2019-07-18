@@ -241,22 +241,37 @@ class StockViewer(wx.Frame):
                          self.title,
                          style=wx.DEFAULT_FRAME_STYLE)
         self.title = title
-        # self.Maximize(True)
         self.database = database
         self.open = True
         self.item_viewers = []
 
+        controls_panel = wx.Panel(self, -1)
+
+        with self.database.open_database_connection() as con:
+            self.categories = self.database.get_categories(con)
+            self.classifications = self.database.get_classifications(con)
+            self.categories_select = wx.CheckListBox(controls_panel,
+                                                     wx.ID_ANY,
+                                                     size=(200, 100),
+                                                     choices=self.database.get_categories(con))
+
+            self.classifications_select = wx.CheckListBox(controls_panel,
+                                                          wx.ID_ANY,
+                                                          size=(200, 75),
+                                                          choices=self.database.get_classifications(con))
+            self.stock_items = self.database.get_all_items(con)
+        self.filtered_item_flags = [True for i in range(len(self.stock_items))]
+
         # Setup ListCtrl
-        self.stock_items = None
         self.stock_list = wx.ListCtrl(self,
                                       size=(-1, -1),
                                       style=wx.LC_REPORT | wx.LC_HRULES)
 
         self.table_headers = {"SKU": ("sku", lambda x: str(x).zfill(6), 50),
                               "Product ID": ("product_id", lambda x: x, 70),
-                              "Description": ("description", lambda x: x, 235),
-                              "Category": ("category", lambda x: x, 70),
-                              "Classification": ("classification", lambda x: x, 85),
+                              "Description": ("description", lambda x: x.replace("\n", " "), 235),
+                              "Category": ("category", lambda x: self.categories[x], 70),
+                              "Classification": ("classification", lambda x: self.classifications[x], 85),
                               "Unit Cost": ("unit_cost", lambda x: "£{:.2f}".format(x), 65),
                               "Unit Weight": ("unit_weight", lambda x: "{:.2f}kg".format(x), 80),
                               "NEC Weight": ("nec_weight", lambda x: "{:.2f}kg".format(x), 80),
@@ -271,8 +286,6 @@ class StockViewer(wx.Frame):
 
         # Create and populate the controls area.
         controls_sizer = wx.BoxSizer(wx.VERTICAL)
-
-        controls_panel = wx.Panel(self, -1)
 
         padding = 5
 
@@ -290,26 +303,12 @@ class StockViewer(wx.Frame):
 
         controls_sizer.AddSpacer(padding * 3)
 
-        self.search_box = wx.SearchCtrl(controls_panel, size=(200, -1))
+        self.search_box = wx.SearchCtrl(controls_panel, size=(200, -1), style=wx.TE_PROCESS_ENTER)
         self.search_box.SetDescriptiveText("Filter...")
         controls_sizer.Add(self.search_box, 0, wx.LEFT | wx.RIGHT, padding)
 
         # Add filter boxes.
         controls_sizer.AddSpacer(padding * 3)
-
-        with self.database.open_database_connection() as con:
-            self.categories_select = wx.CheckListBox(controls_panel,
-                                                     wx.ID_ANY,
-                                                     size=(200, 100),
-                                                     choices=self.database.get_categories(con))
-
-            self.classifications_select = wx.CheckListBox(controls_panel,
-                                                          wx.ID_ANY,
-                                                          size=(200, 75),
-                                                          choices=self.database.get_classifications(con))
-
-        self.select_all_categories(None)
-        self.select_all_classifications(None)
 
         categories_label = wx.StaticText(controls_panel,
                                          wx.ID_ANY,
@@ -373,6 +372,9 @@ class StockViewer(wx.Frame):
 
         main_sizer.SetSizeHints(self)
 
+        self.select_all_categories(None)
+        self.select_all_classifications(None)
+
         self.SetSizerAndFit(main_sizer)
         self.Show()
 
@@ -382,12 +384,16 @@ class StockViewer(wx.Frame):
         self.Bind(wx.EVT_BUTTON, self.clear_categories, self.cat_clear_all)
         self.Bind(wx.EVT_BUTTON, self.select_all_classifications, self.class_select_all)
         self.Bind(wx.EVT_BUTTON, self.clear_classifications, self.class_clear_all)
-        self.Bind(wx.EVT_LISTBOX, self.category_filter_changed, self.categories_select)
-        self.Bind(wx.EVT_LISTBOX, self.classification_filter_changed, self.classifications_select)
+        self.Bind(wx.EVT_CHECKLISTBOX, self.apply_filters, self.categories_select)
+        self.Bind(wx.EVT_CHECKLISTBOX, self.apply_filters, self.classifications_select)
+        self.Bind(wx.EVT_LISTBOX, self.category_filter_highlight, self.categories_select)
+        self.Bind(wx.EVT_LISTBOX, self.classification_filter_highlight, self.classifications_select)
         self.Bind(wx.EVT_BUTTON, self.create_button_clicked, self.create_new_button)
         self.Bind(wx.EVT_BUTTON, self.edit_button_clicked, self.edit_button)
         self.Bind(wx.EVT_SIZING, self.update_table_size)
         self.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.edit_button_clicked, self.stock_list)
+        self.Bind(wx.EVT_CHECKBOX, self.apply_filters, self.show_hidden_box)
+        self.Bind(wx.EVT_TEXT, self.apply_filters, self.search_box)
 
         self.populate_table(None)
         self.update_table_size(None)
@@ -419,45 +425,56 @@ class StockViewer(wx.Frame):
         if not found:
             self.item_viewers.append(ItemViewer(self, wx.ID_ANY, title=None, database=self.database, sku=sku))
 
-    def category_filter_changed(self, e):
-        # Do stuff
+    def apply_filters(self, e=None):
+        print("Filter Change")
+        #TODO: Change this to compiled regex for efficiency.
+        text_filter = self.search_box.GetValue().strip().lower()
+        for i, s in enumerate(self.stock_items):
+            show = True
+            if text_filter not in s.description.lower():
+                show = False
+            elif s.category not in self.categories_select.GetCheckedItems():
+                show = False
+            elif s.classification not in self.classifications_select.GetCheckedItems():
+                show = False
+            elif s.hidden and not self.show_hidden_box.GetValue():
+                show = False
+            self.filtered_item_flags[i] = show
+        self.populate_table()
 
-        # Stop items being highlighted.
+    def category_filter_highlight(self, e):
         self.categories_select.Deselect(self.categories_select.GetSelection())
 
-    def classification_filter_changed(self, e):
-        # Do stuff
-
-        # Stop items being highlighted.
+    def classification_filter_highlight(self, e):
         self.classifications_select.Deselect(self.classifications_select.GetSelection())
 
     def select_all_categories(self, e):
         for i in range(len(self.categories_select.Items)):
             self.categories_select.Check(i, True)
+        self.apply_filters()
 
     def clear_categories(self, e):
         for i in range(len(self.categories_select.Items)):
             self.categories_select.Check(i, False)
+        self.apply_filters()
 
     def select_all_classifications(self, e):
         for i in range(len(self.classifications_select.Items)):
             self.classifications_select.Check(i, True)
+        self.apply_filters()
 
     def clear_classifications(self, e):
         for i in range(len(self.classifications_select.Items)):
             self.classifications_select.Check(i, False)
+        self.apply_filters()
 
     def populate_table(self, e=None):
-
-        with self.database.open_database_connection() as con:
-            self.stock_items = self.database.get_all_items(con)
-
         self.stock_list.DeleteAllItems()
-
-        for i in self.stock_items:
-            self.stock_list.Append(["" if getattr(i, self.table_headers[h][0]) is None else
-                                    self.table_headers[h][1](getattr(i, self.table_headers[h][0]))
-                                    for h in self.table_headers])
+        for i, s in enumerate(self.stock_items):
+            if self.filtered_item_flags[i]:
+                self.stock_list.Append(["" if getattr(s, self.table_headers[h][0]) is None else
+                                        self.table_headers[h][1](getattr(s, self.table_headers[h][0]))
+                                        for h in self.table_headers])
 
     def update_table_size(self, e=None):
         list_size = self.stock_list.GetSize()
@@ -672,7 +689,12 @@ class ItemViewer(wx.Frame):
             dlg.ShowModal()
             return
 
-        print("Save code here!")
+        #Go through all attributes and update the self.item object.
+        self.item.description = self.description.GetValue()
+        #self.item.
+
+        with self.database.open_database_connection() as con:
+            self.database.update_item(con, self.item)
 
         self.refresh_information()
         self.check_for_changes()
@@ -1010,6 +1032,7 @@ class ControlPanel(wx.Frame):
             self.database.change_auth_level(con, selected_user.user_id, new_auth)
         self.refresh_user_list()
 
+    # @is_user_validated
     def delete_user(self, e=None):
         assert self.users[self.user_list.GetFirstSelected()].user_id != self.database.signed_in_user().user_id
         if not self.validate_user():
@@ -1367,3 +1390,10 @@ class NewPasswordDialog(sized_controls.SizedDialog):
         assert self.pass_entry_one.GetValue() == self.pass_entry_two.GetValue()
         assert self.pass_entry_one.GetValue() != ""
         return self.pass_entry_one.GetValue()
+
+
+def call_if_callable(f, *args, **kwargs):
+    if hasattr(f, "__call__"):
+        return f(*args, **kwargs)
+    else:
+        return f
