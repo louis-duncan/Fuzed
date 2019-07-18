@@ -7,6 +7,8 @@ from wx.richtext import RichTextCtrl
 from wx.lib import sized_controls
 from copy import deepcopy
 
+from database_structs import StockItem
+
 
 class Launcher(wx.Frame):
     database: database_io.DatabaseHandler
@@ -92,6 +94,11 @@ class Launcher(wx.Frame):
         self.Bind(wx.EVT_BUTTON, self.events_button_clicked, self.events_button)
         self.Bind(wx.EVT_BUTTON, self.control_panel_button_clicked, self.control_panel_button)
         self.Bind(wx.EVT_BUTTON, self.user_button_clicked, self.user_button)
+
+        # TODO: #### DELETE THIS ####
+        with self.database.open_database_connection() as con:
+            self.database.validate_user(con, "louis", "password", True)
+            self.login()
 
         self.Show()
 
@@ -400,9 +407,7 @@ class StockViewer(wx.Frame):
         self.update_table_size(None)
 
     def create_button_clicked(self, e=None):
-        for i, h in enumerate(self.table_headers):
-            print(h, ":", self.stock_list.GetColumnWidth(i))
-        self.WarpPointer(-10, -10)
+        self.item_viewers.append(ItemViewer(self, wx.ID_ANY, title=None, database=self.database, sku=None))
 
     def purge_viewers(self):
         for v in self.item_viewers:
@@ -524,6 +529,8 @@ class ItemViewer(wx.Frame):
 
         panel = wx.Panel(self)
 
+        self.required_fields = ["description", "stock_on_hand"]
+
         # Controls in col 1
         self.column_one = {}
 
@@ -611,7 +618,8 @@ class ItemViewer(wx.Frame):
         column_one_sizer = wx.GridBagSizer(5, 5)
         for i, k in enumerate(self.column_one):
             if not k.startswith("none"):
-                column_one_sizer.Add(wx.StaticText(panel, label=k + ":"),
+                label = ("* " if self.column_one[k].GetName() in self.required_fields else "") + k + ":"
+                column_one_sizer.Add(wx.StaticText(panel, label=label),
                                      (i, 0),
                                      flag=wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT)
             if k == "Description":
@@ -624,9 +632,10 @@ class ItemViewer(wx.Frame):
         # Add col 2 things
         column_two_sizer = wx.GridBagSizer(5, 5)
         for i, k in enumerate(self.column_two):
-            # Add label, if it doesn't start with 'none', allows for labels to be ommitted.
+            # Add label, if it doesn't start with 'none', allows for labels to be omitted.
             if not k.startswith("none"):
-                column_two_sizer.Add(wx.StaticText(panel, label=k + ":"),
+                label = ("* " if self.column_two[k].GetName() in self.required_fields else "") + k + ":"
+                column_two_sizer.Add(wx.StaticText(panel, label=label),
                                      (i, 0),
                                      flag=wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT)
             # Add control object.
@@ -670,21 +679,27 @@ class ItemViewer(wx.Frame):
     def save_button_clicked(self, e=None):
         error = None
         if self.database.signed_in_user() is None:
-            error = "Cannot Save\n\nYou are not signed in, so cannot save.\nPlease sign in from the main window."
+            error = "You are not signed in, so cannot save.\nPlease sign in from the main window."
         elif self.database.signed_in_user().auth_level > 1:
-            error = "Cannot Save\n\nYou are not authorised to save changes to stock."
+            error = "You are not authorised to save changes to stock."
         else:
-            pass
+            for r in self.required_fields:
+                if getattr(self.live_item, r) in ("", 2, None):
+                    error = "All required fields (*) must be provided.\n{} missing.".format(r)
+                    break
 
         if error is not None:
             dlg = wx.MessageDialog(self,
-                                   error,
+                                   "Cannot Save\n\n" + error,
                                    TITLE + " - Save")
             dlg.ShowModal()
             return
 
         with self.database.open_database_connection() as con:
-            self.database.update_item(con, self.live_item)
+            if self.sku_val is None:
+                self.sku_val = self.database.add_item(con, self.live_item)
+            else:
+                self.database.update_item(con, self.live_item)
 
         self.refresh_information()
         self.check_for_changes()
@@ -704,7 +719,7 @@ class ItemViewer(wx.Frame):
         for k in self.item.__dict__.keys():
             old = self.item.__dict__[k]
             new = self.live_item.__dict__[k]
-            if old != new and not (old == None and new in (0, "")):
+            if old != new and not (old is None and new in (0, "")):
                 self.unsaved_changes = True
                 break
         else:
@@ -721,22 +736,25 @@ class ItemViewer(wx.Frame):
         webbrowser.open_new(self.preview_link.GetValue().strip())
 
     def refresh_information(self, e=None):
-        with self.database.open_database_connection() as con:
-            self.item = self.database.get_item(con, self.sku_val)
-            self.available.SetLabelText("  " + str(self.database.get_stock_levels(con, self.sku_val)[1]))
+        if self.sku_val is not None:
+            with self.database.open_database_connection() as con:
+                self.item = self.database.get_item(con, self.sku_val)
+                self.available.SetLabelText("  " + str(self.database.get_stock_levels(con, self.sku_val)[1]))
 
-        if self.item is None:
-            dlg = wx.MessageDialog(self, "Database Lookup Error\n\n"
-                                         "Failed to find item {} in the database.".format(self.sku_val),
-                                   style=wx.OK | wx.ICON_EXCLAMATION,
-                                   caption="{} - Lookup Error".format(TITLE))
-            dlg.ShowModal()
-            self.Destroy()
-            return
+            if self.item is None:
+                dlg = wx.MessageDialog(self, "Database Lookup Error\n\n"
+                                             "Failed to find item {} in the database.".format(self.sku_val),
+                                       style=wx.OK | wx.ICON_EXCLAMATION,
+                                       caption="{} - Lookup Error".format(TITLE))
+                dlg.ShowModal()
+                self.Destroy()
+                return
+        else:
+            self.item = StockItem("generated")
 
         self.live_item = deepcopy(self.item)
 
-        self.sku.SetLabelText("  " + str(self.sku_val).zfill(6))
+        self.sku.SetLabelText("  " + str(self.live_item.sku).zfill(6))
 
         all_controls = [c for c in self.column_one.values()] + [c for c in self.column_two.values()]
 
@@ -1039,6 +1057,14 @@ class ControlPanel(wx.Frame):
                                    caption="Login Failed")
             dlg.ShowModal()
             return False
+
+
+class ShowsList(wx.Frame):
+    pass
+
+
+class ShowViewer(wx.Frame):
+    pass
 
 
 class LoginDialog(sized_controls.SizedDialog):
