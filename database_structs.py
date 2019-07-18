@@ -60,11 +60,11 @@ class StockItem:
             self.ce_no = record.ce_no
             self.serial_no = record.serial_no
             self.duration = float(record.duration) if record.duration is not None else None
-            self.low_noise = record.low_noise == "True" if record.low_noise is not None else None
+            self.low_noise = True if record.low_noise in ("True", 1, True) else None
             self.notes = record.notes
             self.preview_link = record.preview_link
             self.category = int(record.category) if record.category is not None else None
-            self.hidden = record.hidden == "True" if record.hidden is not None else None
+            self.hidden = True if record.hidden in ("True", 1, True) else None
             self.product_id = record.product_id
             self.stock_on_hand = int(record.stock_on_hand) if record.stock_on_hand is not None else None
             self.shots = int(record.shots) if record.shots is not None else None
