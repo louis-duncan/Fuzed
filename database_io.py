@@ -109,6 +109,19 @@ class DatabaseHandler:
         record = con.one("SELECT * FROM stock_items WHERE sku IS ?", (sku, ))
         return StockItem(record)
 
+    def update_item(self, con: NewSQL, item):
+        q = "UPDATE stock_items SET"
+        args = []
+        for k in item.__dict__.keys():
+            if k != "sku":
+                q += " " + k + "=?,"
+                args.append(item.__dict__[k])
+        q = q.strip(",")
+        args.append(item.sku)
+        q += " WHERE sku=?"
+        con.run(q, args)
+        con.commit()
+
     def get_items_by_category(self, con, categories, text_filter=""):
         if type(categories) in (list, tuple):
             q = "SELECT * FROM stock_items WHERE category IN ({})"
@@ -128,9 +141,6 @@ class DatabaseHandler:
                     items.remove(i)
 
         return items
-
-    def update_stock_item(self, stock_item_obj):
-        pass
 
     def get_stock_levels(self, con, sku):
         """Takes a SKU and returns the stock pn hand and the available stock.
@@ -267,7 +277,7 @@ class DatabaseHandler:
 
     def get_show_items(self, con, show_id):
         raw_items = con.all("SELECT sku, quantity FROM show_items WHERE show_id=?", (show_id,))
-        items = [(self.record_to_item(con, con.one("SELECT * FROM stock_items WHERE sku=?", (i.sku,))),
+        items = [(StockItem(con.one("SELECT * FROM stock_items WHERE sku=?", (i.sku,))),
                   i.quantity) for i in raw_items]
         return items
 
@@ -276,30 +286,6 @@ class DatabaseHandler:
 
     def get_classifications(self, con):
         return con.all("SELECT classification_text FROM stock_classifications")
-
-    def record_to_item(self, con: NewSQL, record):
-        if record is None:
-            return None
-        return StockItem(record.sku,
-                         record.product_id,
-                         record.description,
-                         con.one("SELECT category_text FROM stock_categories WHERE category_no=?",
-                                 (record.category,)),
-                         con.one("SELECT classification_text FROM stock_classifications WHERE classification_id=?",
-                                 (record.category,)),
-                         record.calibre,
-                         record.unit_cost,
-                         record.unit_weight,
-                         record.nec_weight,
-                         record.case_size,
-                         record.hse_no,
-                         record.ce_no,
-                         record.serial_no,
-                         record.duration,
-                         record.low_noise,
-                         record.notes,
-                         record.preview_link,
-                         bool(record.hidden))
 
     def record_to_show(self, con, record):
         changes = self.get_show_changes(con, record.show_id)
@@ -314,7 +300,7 @@ class DatabaseHandler:
                     items)
 
     def get_all_items(self, con):
-        return [self.record_to_item(con, i) for i in con.all("SELECT * FROM stock_items")]
+        return [StockItem(i) for i in con.all("SELECT * FROM stock_items")]
 
 
 class Handle:
