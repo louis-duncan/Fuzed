@@ -8,7 +8,7 @@ import os
 import pickle
 import time
 from database_structs import *
-
+from contextlib import closing
 
 DATABASE_PATH = None
 
@@ -31,6 +31,22 @@ class NewSQL(sql.SQL):
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
+
+    def run(self, query, parameters=None, return_id=False):
+        """
+        execute or executemany depending on parameters
+        """
+        new_id = None
+        with closing(self.connection.cursor()) as cursor:
+            execute = getattr(cursor, self.which_execute(parameters))
+            if parameters:
+                execute(query, parameters)
+            else:
+                execute(query)
+            if return_id:
+                new_id = cursor.lastrowid
+        if return_id:
+            return new_id
 
     def close(self):
         self.connection.close()
@@ -65,6 +81,9 @@ class NewSQL(sql.SQL):
                 with open(self._handle_path, "bw") as fh:
                     pickle.dump(None, fh)
 
+    def last_row_id(self):
+        return
+
     def _get_handle(self):
         try:
             with open(self._handle_path, "br") as fh:
@@ -76,7 +95,7 @@ class NewSQL(sql.SQL):
     def has_handle(self):
         current_handle = self._get_handle()
         return (current_handle is not None) and (current_handle.holder == self._uid) and (not current_handle.expired())
-    
+
     def commit(self):
         self.connection.commit()
 
@@ -106,8 +125,17 @@ class DatabaseHandler:
                                                                                 handle.expired()))
 
     def get_item(self, con: NewSQL, sku: str) -> StockItem:
-        record = con.one("SELECT * FROM stock_items WHERE sku IS ?", (sku, ))
+        record = con.one("SELECT * FROM stock_items WHERE sku IS ?", (sku,))
         return StockItem(record)
+
+    def add_item(self, con: NewSQL, item):
+        item_attributes = dict(item.__dict__)
+        item_attributes.pop("sku")
+        q = "INSERT INTO stock_items ({}) VALUES ({})".format(", ".join(item_attributes.keys()),
+                                                              ("?, " * len(item_attributes)).strip(", "))
+        new_id = con.run(q, list(item_attributes.values()), True)
+        con.commit()
+        return new_id
 
     def update_item(self, con: NewSQL, item):
         q = "UPDATE stock_items SET"
@@ -131,7 +159,7 @@ class DatabaseHandler:
         else:
             raise (ValueError("Parameter categories must be list, tuple or '*'."))
 
-        items = [self.record_to_item(con, i) for i in con.all(q)]
+        items = [StockItem(i) for i in con.all(q)]
 
         if text_filter != "":
             for i in items:
@@ -174,10 +202,11 @@ class DatabaseHandler:
 
     def create_user(self, con: NewSQL, username, password, auth_level):
         pass_hash, pass_salt = hash_salt_gen(password)
-        con.run("INSERT INTO users (name, auth_level, pass_hash, pass_salt) VALUES (?, ?, ?, ?)", (username.lower(),
-                                                                                                   auth_level,
-                                                                                                   pass_hash,
-                                                                                                   pass_salt))
+        new_id = con.run("INSERT INTO users (name, auth_level, pass_hash, pass_salt) VALUES (?, ?, ?, ?)",
+                         (username.lower(),
+                          auth_level,
+                          pass_hash,
+                          pass_salt))
         con.commit()
 
     def get_users(self, con: NewSQL):
@@ -202,7 +231,7 @@ class DatabaseHandler:
 
         if valid:
             con.run("UPDATE users SET last_login_time=?  WHERE user_id=?", (datetime.datetime.now(), user.user_id))
-            con.connection.commit()
+            con.commit()
 
         if sign_in:
             self.__signed_in_user = User(user.user_id, user.name, user.auth_level)
