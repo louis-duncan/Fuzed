@@ -4,27 +4,27 @@ import datetime
 class StockItem:
     def __init__(self,
                  sku,
-                 product_id="",
-                 description="",
-                 category=0,
-                 classification=0,
-                 calibre=0.0,
-                 unit_cost=0.0,
-                 unit_weight=0.0,
-                 nec_weight=0.0,
-                 case_size=0,
-                 hse_no="",
-                 ce_no="",
-                 serial_no="",
-                 duration=0.0,
-                 low_noise=False,
-                 notes="",
-                 preview_link="",
-                 hidden=False,
-                 stock_on_hand=0,
-                 shots=0
+                 product_id=None,
+                 description=None,
+                 category=None,
+                 classification=None,
+                 calibre=None,
+                 unit_cost=None,
+                 unit_weight=None,
+                 nec_weight=None,
+                 case_size=None,
+                 hse_no=None,
+                 ce_no=None,
+                 serial_no=None,
+                 duration=None,
+                 low_noise=None,
+                 notes=None,
+                 preview_link=None,
+                 hidden=None,
+                 stock_on_hand=None,
+                 shots=None
                  ):
-        if type(sku) in (str, int):
+        if sku is None or type(sku) in (str, int):
             self.sku = sku
             self.product_id = product_id
             self.description = description
