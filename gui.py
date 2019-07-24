@@ -1,6 +1,6 @@
+import re
 import database_io
 import wx
-import events
 import webbrowser
 from custom_globals import *
 from wx.richtext import RichTextCtrl
@@ -13,7 +13,7 @@ from database_structs import StockItem
 class Launcher(wx.Frame):
     database: database_io.DatabaseHandler
 
-    def __init__(self, parent, frame_id, title, database):
+    def __init__(self, parent, frame_id, title):
         super().__init__(parent,
                          frame_id,
                          title,
@@ -26,7 +26,17 @@ class Launcher(wx.Frame):
         self.events_viewer = None
         self.control_panel = None
 
-        self.database = database
+        try:
+            database_io.load_config(CONFIG_PATH)
+        except KeyError as e:
+            if e.args[0] == "DATABASE_PATH":
+                database_io.DATABASE_PATH = self.select_database_path()
+                if database_io.DATABASE_PATH is None:
+                    self.Destroy()
+                    return
+                database_io.save_config(CONFIG_PATH)
+
+        self.database = database_io.init()
 
         panel = wx.Panel(self, -1)
 
@@ -166,20 +176,28 @@ class Launcher(wx.Frame):
         print("Clicked:", e.String)
 
     def stock_button_clicked(self, e):
-        print("Stock Button Clicked")
         if self.stock_viewer is not None and self.stock_viewer.open:
             self.stock_viewer.Show()
             self.stock_viewer.Restore()
             self.stock_viewer.Raise()
             self.stock_viewer.Refresh()
         else:
-            self.stock_viewer = StockViewer(self,
-                                            wx.ID_ANY,
-                                            self.title,
-                                            self.database)
+            self.stock_viewer = StockList(self,
+                                          wx.ID_ANY,
+                                          self.title,
+                                          self.database)
 
     def events_button_clicked(self, e):
-        print("Events Button Clicked")
+        if self.events_viewer is not None and self.events_viewer.open:
+            self.events_viewer.Show()
+            self.events_viewer.Restore()
+            self.events_viewer.Raise()
+            self.events_viewer.Refresh()
+        else:
+            self.events_viewer = ShowsList(self,
+                                           wx.ID_ANY,
+                                           self.title,
+                                           self.database)
 
     def control_panel_button_clicked(self, e):
         print("Control Panel Button Clicked")
@@ -240,8 +258,18 @@ class Launcher(wx.Frame):
             self.control_panel.on_close()
             self.control_panel.Destroy()
 
+    def select_database_path(self):
+        with wx.FileDialog(self,
+                           "Select Database Path",
+                           wildcard="Database Files (*.sqlite)|*.sqlite|All Files (*.*)|*.*",
+                           style=wx.FD_OPEN) as fileDialog:
+            if fileDialog.ShowModal() == wx.ID_CANCEL:
+                return
 
-class StockViewer(wx.Frame):
+            return fileDialog.GetPath()
+
+
+class StockList(wx.Frame):
     def __init__(self, parent, frame_id, title, database: database_io.DatabaseHandler):
         self.title = title + " - Stock Viewer"
         super().__init__(parent,
@@ -432,13 +460,24 @@ class StockViewer(wx.Frame):
             self.item_viewers.append(ItemViewer(self, wx.ID_ANY, title=None, database=self.database, sku=sku))
 
     def apply_filters(self, e=None):
-        print("Filter Change")
-        #TODO: Change this to compiled regex for efficiency.
+        fields_to_text_filter = [("sku", lambda x: str(x).zfill(6)),
+                                 ("description", lambda x: x.lower()),
+                                 ("hse_no", lambda x: x.lower() if x is not None else ""),
+                                 ("ce_no", lambda x: x.lower() if x is not None else ""),
+                                 ("serial_no", lambda x: x.lower() if x is not None else ""),
+                                 ("notes", lambda x: x.lower() if x is not None else ""),
+                                 ("product_id", lambda x: x.lower() if x is not None else "")]
         text_filter = self.search_box.GetValue().strip().lower()
+        search = re.compile(text_filter, re.MULTILINE)
         for i, s in enumerate(self.stock_items):
             show = True
-            if text_filter not in s.description.lower():
+            if text_filter is not "":
                 show = False
+                for f in fields_to_text_filter:
+                    val = f[1](getattr(s, f[0]))
+                    if search.search(val) is not None:
+                        show = True
+                        break
             elif s.category not in self.categories_select.GetCheckedItems():
                 show = False
             elif s.classification not in self.classifications_select.GetCheckedItems():
@@ -499,8 +538,9 @@ class StockViewer(wx.Frame):
             if e is not None:
                 e.Skip()
 
-    def Refresh(self, e=None):
-        self.populate_table(e)
+    def Refresh(self, eraseBackground=True, rect=None):
+        self.populate_table()
+        super().Refresh(eraseBackground, rect)
 
 
 class ItemViewer(wx.Frame):
@@ -524,12 +564,16 @@ class ItemViewer(wx.Frame):
         self.live_item = None
 
         with self.database.open_database_connection() as con:
-            category_choices = con.all("SELECT category_text FROM stock_categories")
-            classification_choices = con.all("SELECT classification_text FROM stock_classifications")
+            category_choices = con.all("SELECT category_text FROM stock_categories") + [""]
+            classification_choices = con.all("SELECT classification_text FROM stock_classifications") + [""]
 
         panel = wx.Panel(self)
 
-        self.required_fields = ["description", "stock_on_hand"]
+        self.required_fields = ["description",
+                                "category",
+                                "classification",
+                                "hidden",
+                                "stock_on_hand"]
 
         # Controls in col 1
         self.column_one = {}
@@ -538,9 +582,9 @@ class ItemViewer(wx.Frame):
         self.column_one["SKU"] = self.sku
 
         self.product_id = wx.TextCtrl(panel, name="product_id")
-        self.column_one["Product ID"] = self.product_id
+        self.column_one["Manufacturer Product ID"] = self.product_id
 
-        self.description = wx.TextCtrl(panel, name="description", style=wx.TE_MULTILINE)
+        self.description = wx.TextCtrl(panel, name="description", size=(200, 100), style=wx.TE_MULTILINE)
         self.column_one["Description"] = self.description
 
         self.category = wx.Choice(panel, name="category", choices=category_choices)
@@ -580,10 +624,10 @@ class ItemViewer(wx.Frame):
         self.duration = wx.SpinCtrl(panel, name="duration", value="", min=0, max=10000)
         self.column_two["Duration (secs)"] = self.duration
 
-        self.notes = wx.TextCtrl(panel, name="notes", style=wx.TE_MULTILINE)
+        self.notes = wx.TextCtrl(panel, name="notes", size=(200, 100), style=wx.TE_MULTILINE)
         self.column_two["Notes"] = self.notes
 
-        self.low_noise = wx.Choice(panel, name="low_noise", choices=("No", "Yes"))
+        self.low_noise = wx.Choice(panel, name="low_noise", choices=("No", "Yes", ""))
         self.column_two["Low Noise"] = self.low_noise
 
         self.preview_link = wx.TextCtrl(panel, name="preview_link")
@@ -595,7 +639,7 @@ class ItemViewer(wx.Frame):
         self.hse_no = wx.TextCtrl(panel, name="hse_no")
         self.column_two["HSE No'"] = self.hse_no
 
-        self.hidden = wx.Choice(panel, name="hidden", choices=("No", "Yes"))
+        self.hidden = wx.Choice(panel, name="hidden", choices=("No", "Yes", ""))
         self.column_two["Hidden"] = self.hidden
 
         self.stock_on_hand = wx.SpinCtrl(panel, name="stock_on_hand", value="", min=0, max=10000)
@@ -607,12 +651,16 @@ class ItemViewer(wx.Frame):
         col_two_gap = (20, 20)
         self.column_two["none_2"] = col_two_gap
 
-        self.save_button = wx.Button(panel, name="none", label="Save Changes")
+        self.save_button = wx.Button(panel, name="none",  size=(120, 35), label="Save Changes")
         self.save_button.Disable()
         self.column_two["none_3"] = self.save_button
 
+        self.reset_button = wx.Button(panel, name="none", size=(120, 35), label="Clear Changes")
+        self.reset_button.Disable()
+        self.column_two["none_4"] = self.reset_button
+
         col_two_gap_two = (0, 0)
-        self.column_two["none_4"] = col_two_gap_two
+        self.column_two["none_5"] = col_two_gap_two
 
         # Add col 1 things
         column_one_sizer = wx.GridBagSizer(5, 5)
@@ -673,6 +721,7 @@ class ItemViewer(wx.Frame):
         self.Bind(wx.EVT_TEXT, self.check_for_changes)
         self.Bind(wx.EVT_CHOICE, self.check_for_changes)
         self.Bind(wx.EVT_BUTTON, self.save_button_clicked, self.save_button)
+        self.Bind(wx.EVT_BUTTON, self.refresh_information, self.reset_button)
 
         self.Show()
 
@@ -684,8 +733,32 @@ class ItemViewer(wx.Frame):
             error = "You are not authorised to save changes to stock."
         else:
             for r in self.required_fields:
-                if getattr(self.live_item, r) in ("", 2, None):
-                    error = "All required fields (*) must be provided.\n{} missing.".format(r)
+                val = getattr(self.live_item, r)
+                if r == "hidden" and val != 2:
+                    pass
+                elif r == "classification" and val != (self.classification.GetCount() - 1):
+                    pass
+                elif r == "category" and val != (self.category.GetCount() - 1):
+                    pass
+                elif r == "description" and val.strip() != "":
+                    pass
+                elif r == "stock_on_hand" and val != "":
+                    pass
+                else:
+                    name = ""
+                    for c in self.column_one:
+                        if hasattr(self.column_one[c], "Name") and self.column_one[c].Name == r:
+                            name = c
+                            break
+                    else:
+                        for c in self.column_two:
+                            if hasattr(self.column_two[c], "Name") and self.column_two[c].Name == r:
+                                name = c
+                                break
+                        else:
+                            name = r
+
+                    error = "All required fields (*) must be provided.\n{} missing.".format(name)
                     break
 
         if error is not None:
@@ -727,8 +800,10 @@ class ItemViewer(wx.Frame):
 
         if self.unsaved_changes:
             self.save_button.Enable()
+            self.reset_button.Enable()
         else:
             self.save_button.Disable()
+            self.reset_button.Disable()
 
     def open_preview(self, e=None):
         if self.preview_link.GetValue().strip() == "":
@@ -766,19 +841,27 @@ class ItemViewer(wx.Frame):
             if attr == "none":
                 pass
             elif attr in ("classification", "category"):
-                c.SetSelection(self.item.__getattribute__(attr))
+                if self.item.__getattribute__(attr) is not None:
+                    val = self.item.__getattribute__(attr)
+                else:
+                    val = c.GetCount() - 1
+                c.SetSelection(val)
             elif attr in ("low_noise", "hidden"):
-                c.SetSelection(int(self.item.__getattribute__(attr)))
+                if self.item.__getattribute__(attr) is not None:
+                    val = self.item.__getattribute__(attr)
+                else:
+                    val = 2
+                c.SetSelection(val)
             else:
-                raw_val = self.item.__getattribute__(attr)
-                if raw_val is not None:
-                    value = raw_val
+                val = self.item.__getattribute__(attr)
+                if val is not None:
+                    pass
                 else:
                     if type(c) is wx.TextCtrl:
-                        value = ""
+                        val = ""
                     elif type(c) in (wx.SpinCtrl, wx.SpinCtrlDouble):
-                        value = 0
-                c.SetValue(value)
+                        val = 0
+                c.SetValue(val)
 
     def on_close(self, e=None):
         if self.unsaved_changes:
@@ -867,6 +950,8 @@ class ControlPanel(wx.Frame):
         user_controls_sizer.Add(self.user_list)
         user_controls_sizer.AddSpacer(3)
         user_controls_sizer.Add(user_controls_buttons_sizer)
+
+        ## TODO: Add database selection.
 
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         side_margin_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -1060,7 +1145,117 @@ class ControlPanel(wx.Frame):
 
 
 class ShowsList(wx.Frame):
-    pass
+    def __init__(self, parent, frame_id, title, database: database_io.DatabaseHandler):
+        self.title = title + " - Shows Viewer"
+        super().__init__(parent,
+                         frame_id,
+                         self.title,
+                         style=wx.DEFAULT_FRAME_STYLE)
+        self.title = title
+        self.database = database
+        self.open = True
+        self.show_viewers = []
+
+        controls_panel = wx.Panel(self, -1)
+
+        with self.database.open_database_connection() as con:
+            self.stock_items = self.database.get_shows(con, False)
+
+        # Setup ListCtrl
+        self.shows_list = wx.ListCtrl(self,
+                                      size=(-1, -1),
+                                      style=wx.LC_REPORT | wx.LC_HRULES)
+
+        self.table_headers = {"Show ID": ("show_id", lambda x: str(x).zfill(6), 60),
+                              "Title": ("show_title", lambda x: x, 250),
+                              "Supervisor": ("supervisor", lambda x: x, 70),
+                              "Date/Time": ("date_time", lambda x: "{:%d/%m/%y - %H:%M}".format(x), 150)
+                              }
+        self.column_to_expand = 2
+
+        for i, h in enumerate(self.table_headers.keys()):
+            self.shows_list.InsertColumn(i, h)
+            self.shows_list.SetColumnWidth(i, self.table_headers[h][2])
+
+        # Create and populate the controls area.
+        controls_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        padding = 5
+
+        self.create_new_button = wx.Button(controls_panel,
+                                           label="Create New Show",
+                                           size=(200, 50))
+        controls_sizer.Add(self.create_new_button, 0, wx.LEFT | wx.RIGHT, padding)
+
+        controls_sizer.AddSpacer(padding)
+
+        self.edit_button = wx.Button(controls_panel,
+                                     label="Edit Selected Show",
+                                     size=(200, 50))
+        controls_sizer.Add(self.edit_button, 0, wx.LEFT | wx.RIGHT, padding)
+
+        controls_sizer.AddSpacer(padding * 3)
+
+        self.search_box = wx.SearchCtrl(controls_panel, size=(200, -1), style=wx.TE_PROCESS_ENTER)
+        self.search_box.SetDescriptiveText("Filter...")
+        controls_sizer.Add(self.search_box, 0, wx.LEFT | wx.RIGHT, padding)
+
+        controls_sizer.AddSpacer(padding * 2)
+        self.show_hidden_box = wx.CheckBox(controls_panel,
+                                           wx.ID_ANY,
+                                           label="Show closed shows.")
+        controls_sizer.Add(self.show_hidden_box, 0, wx.LEFT | wx.RIGHT, padding)
+
+        controls_sizer.AddSpacer(padding)
+
+        controls_panel.SetSizerAndFit(controls_sizer)
+
+        # Add things to the main sizer, and assign it to a main panel.
+        main_sizer = wx.BoxSizer(wx.HORIZONTAL)
+
+        main_sizer.Add(self.shows_list, 1, wx.EXPAND)
+
+        main_sizer.Add(controls_panel, 0, wx.EXPAND)
+
+        main_sizer.SetSizeHints(self)
+
+        self.SetSizerAndFit(main_sizer)
+        self.Show()
+
+        # Bindings
+        self.Bind(wx.EVT_CLOSE, self.on_close)
+
+        self.populate_table(None)
+        self.update_table_size(None)
+
+    def purge_viewers(self):
+        for v in self.show_viewers:
+            if not v.open:
+                self.show_viewers.remove(v)
+
+    def populate_table(self, e=None):
+        pass
+
+    def update_table_size(self, e=None):
+        list_size = self.shows_list.GetSize()
+        taken_space = 0
+        for c in range(len(self.table_headers)):
+            taken_space += self.shows_list.GetColumnWidth(c) if c != self.column_to_expand else 0
+        new_width = (list_size[0] - taken_space) - 1
+        self.shows_list.SetColumnWidth(self.column_to_expand, new_width)
+
+    def on_close(self, e=None):
+        self.purge_viewers()
+        if len(self.show_viewers) > 0:
+            self.Hide()
+        else:
+            self.open = False
+            if e is not None:
+                e.Skip()
+
+    def Refresh(self, eraseBackground=True, rect=None):
+        self.populate_table()
+        super().Refresh(eraseBackground, rect)
 
 
 class ShowViewer(wx.Frame):
