@@ -2,15 +2,15 @@ import binascii
 import hashlib
 import random
 import sqlite3
-
 import sql
 import os
 import pickle
 import time
+from custom_globals import *
 from database_structs import *
 from contextlib import closing
 
-DATABASE_PATH = None
+DATABASE_PATH = ""
 
 
 class DatabaseTimeoutError(Exception):
@@ -342,13 +342,50 @@ class Handle:
 
 
 def load_config(config_path="config.cfg"):
+    if not os.path.exists(config_path):
+        if not os.path.exists(os.path.dirname(config_path)):
+            os.makedirs(os.path.dirname(config_path))
+        fh = open(config_path, "w")
+        fh.close()
     with open(config_path, "r") as fh:
         lines = [l.strip() for l in fh]
+    vars_to_load = ["DATABASE_PATH"]
+    values = {}
     for l in lines:
         if not l.startswith("#"):
             parts = [p.strip() for p in l.split("=")]
-            if len(parts) == 2 and parts[0].isupper():
-                globals()[parts[0]] = parts[1]
+            values[parts[0]] = parts[1]
+    for v in vars_to_load:
+        try:
+            globals()[v] = values[v]
+        except KeyError:
+            raise KeyError(v)
+
+
+def save_config(config_path="config.cfg"):
+    values_to_save = ["DATABASE_PATH"]
+    if not os.path.exists(config_path):
+        if not os.path.exists(os.path.dirname(config_path)):
+            os.makedirs(os.path.dirname(config_path))
+        fh = open(config_path, "w")
+        fh.close()
+    with open(config_path, "r") as fh:
+        lines = [l.strip() for l in fh]
+    new_lines = []
+    for l in lines:
+        if l.startswith("#"):
+            new_lines.append(l)
+        elif "=" in l:
+            parts = [p.strip() for p in l.split("=")]
+            if parts[0] in values_to_save:
+                values_to_save.remove(parts[0])
+                new_lines.append("=".join([parts[0], globals()[parts[0]]]))
+        else:
+            pass
+    for v in values_to_save:
+        new_lines.append("=".join([v, globals()[v]]))
+    with open(config_path, "w") as fh:
+        fh.write("\n".join(new_lines))
 
 
 def create_database(path):
@@ -368,12 +405,11 @@ def hash_salt_gen(password):
 
 
 def init():
-    load_config()
     if not os.path.exists(DATABASE_PATH):
         create_database(DATABASE_PATH)
     return DatabaseHandler(DATABASE_PATH)
 
 
 if __name__ == "__main__":
-    load_config()
+    load_config(CONFIG_PATH)
     db = DatabaseHandler(DATABASE_PATH)
