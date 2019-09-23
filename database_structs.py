@@ -69,6 +69,9 @@ class StockItem:
             self.stock_on_hand = int(record.stock_on_hand) if record.stock_on_hand is not None else None
             self.shots = int(record.shots) if record.shots is not None else None
 
+    def __repr__(self):
+        return "sku: {}, desc: {}".format(self.sku, self.description)
+
 
 class Show:
     def __init__(self,
