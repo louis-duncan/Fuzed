@@ -25,6 +25,7 @@ class Launcher(wx.Frame):
         self.stock_viewer = None
         self.events_viewer = None
         self.control_panel = None
+        self.show_viewers = []
 
         try:
             database_io.load_config(CONFIG_PATH)
@@ -173,7 +174,7 @@ class Launcher(wx.Frame):
                                             body_style)
 
     def event_clicked(self, e):
-        print("Clicked:", e.String)
+        self.view_show(int(e.String))
 
     def stock_button_clicked(self, e):
         if self.stock_viewer is not None and self.stock_viewer.open:
@@ -268,6 +269,28 @@ class Launcher(wx.Frame):
 
             return fileDialog.GetPath()
 
+    def purge_viewers(self):
+        to_go = []
+        for v in self.show_viewers:
+            if not v.open:
+                to_go.append(v)
+        for v in to_go:
+            self.show_viewers.remove(v)
+
+    def view_show(self, show_id):
+        self.purge_viewers()
+        found = False
+        for v in self.show_viewers:
+            if v.show_id == show_id:
+                v.Restore()
+                v.Raise()
+                found = True
+                break
+            else:
+                pass
+        if not found:
+            self.show_viewers.append(ShowViewer(self, wx.ID_ANY, database=self.database, show_id=show_id))
+
 
 class StockList(wx.Frame):
     def __init__(self, parent, frame_id, title, database: database_io.DatabaseHandler):
@@ -305,7 +328,7 @@ class StockList(wx.Frame):
 
         self.table_headers = {"SKU": ("sku", lambda x: str(x).zfill(6), 50),
                               "Product ID": ("product_id", lambda x: x, 70),
-                              "Description": ("description", lambda x: x.replace("\n", " "), 235),
+                              "Description": ("description", lambda x: x.replace("\n", " "), 250),
                               "Category": ("category", lambda x: self.categories[x], 70),
                               "Classification": ("classification", lambda x: self.classifications[x], 85),
                               "Unit Cost": ("unit_cost", lambda x: "£{:.2f}".format(x), 65),
@@ -431,7 +454,7 @@ class StockList(wx.Frame):
         self.Bind(wx.EVT_CHECKBOX, self.apply_filters, self.show_hidden_box)
         self.Bind(wx.EVT_TEXT, self.apply_filters, self.search_box)
 
-        self.populate_table(None)
+        self.apply_filters()
         self.update_table_size(None)
 
     def create_button_clicked(self, e=None):
@@ -526,7 +549,7 @@ class StockList(wx.Frame):
         taken_space = 0
         for c in range(len(self.table_headers)):
             taken_space += self.stock_list.GetColumnWidth(c) if c != self.column_to_expand else 0
-        new_width = (list_size[0] - taken_space) - 1
+        new_width = ((list_size[0] - taken_space) - 1) - 20
         self.stock_list.SetColumnWidth(self.column_to_expand, new_width)
 
     def on_close(self, e=None):
@@ -651,7 +674,7 @@ class ItemViewer(wx.Frame):
         col_two_gap = (20, 20)
         self.column_two["none_2"] = col_two_gap
 
-        self.save_button = wx.Button(panel, name="none",  size=(120, 35), label="Save Changes")
+        self.save_button = wx.Button(panel, name="none", size=(120, 35), label="Save Changes")
         self.save_button.Disable()
         self.column_two["none_3"] = self.save_button
 
@@ -889,7 +912,7 @@ class ControlPanel(wx.Frame):
         super().__init__(parent,
                          frame_id,
                          self.title,
-                         style=wx.DEFAULT_FRAME_STYLE)
+                         style=wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX))
         self.database = database
         self.open = True
 
@@ -909,6 +932,7 @@ class ControlPanel(wx.Frame):
         main_panel = wx.Panel(self, -1)
 
         # Setup
+        # User management
         user_controls_box = wx.StaticBox(main_panel, label="Users:")
         user_controls_sizer = wx.StaticBoxSizer(user_controls_box, wx.HORIZONTAL)
         user_controls_buttons_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -951,13 +975,20 @@ class ControlPanel(wx.Frame):
         user_controls_sizer.AddSpacer(3)
         user_controls_sizer.Add(user_controls_buttons_sizer)
 
-        ## TODO: Add database selection.
+        # Database management.
+        database_controls_box = wx.StaticBox(main_panel, label="Database Path:")
+        database_controls_sizer = wx.StaticBoxSizer(database_controls_box, wx.VERTICAL)
+        database_controls_sizer.Add(wx.StaticText(main_panel, label=self.database.database_path))
+
+        # Add things to main sizer.
 
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         side_margin_sizer = wx.BoxSizer(wx.HORIZONTAL)
 
         main_sizer.AddSpacer(10)
         main_sizer.Add(user_controls_sizer)
+        main_sizer.AddSpacer(10)
+        main_sizer.Add(database_controls_sizer)
         main_sizer.AddSpacer(10)
 
         side_margin_sizer.AddSpacer(10)
@@ -1146,6 +1177,7 @@ class ControlPanel(wx.Frame):
 
 class ShowsList(wx.Frame):
     def __init__(self, parent, frame_id, title, database: database_io.DatabaseHandler):
+        self.parent = parent
         self.title = title + " - Shows Viewer"
         super().__init__(parent,
                          frame_id,
@@ -1159,7 +1191,8 @@ class ShowsList(wx.Frame):
         controls_panel = wx.Panel(self, -1)
 
         with self.database.open_database_connection() as con:
-            self.stock_items = self.database.get_shows(con, False)
+            self.shows = self.database.get_shows(con, False)
+        self.filter_flags = [True] * len(self.shows)
 
         # Setup ListCtrl
         self.shows_list = wx.ListCtrl(self,
@@ -1190,7 +1223,7 @@ class ShowsList(wx.Frame):
         controls_sizer.AddSpacer(padding)
 
         self.edit_button = wx.Button(controls_panel,
-                                     label="Edit Selected Show",
+                                     label="View Selected Show",
                                      size=(200, 50))
         controls_sizer.Add(self.edit_button, 0, wx.LEFT | wx.RIGHT, padding)
 
@@ -1200,11 +1233,13 @@ class ShowsList(wx.Frame):
         self.search_box.SetDescriptiveText("Filter...")
         controls_sizer.Add(self.search_box, 0, wx.LEFT | wx.RIGHT, padding)
 
+        # TODO: Add supervisor filter.
+
         controls_sizer.AddSpacer(padding * 2)
-        self.show_hidden_box = wx.CheckBox(controls_panel,
-                                           wx.ID_ANY,
-                                           label="Show closed shows.")
-        controls_sizer.Add(self.show_hidden_box, 0, wx.LEFT | wx.RIGHT, padding)
+        self.show_complete_box = wx.CheckBox(controls_panel,
+                                             wx.ID_ANY,
+                                             label="Show closed shows.")
+        controls_sizer.Add(self.show_complete_box, 0, wx.LEFT | wx.RIGHT, padding)
 
         controls_sizer.AddSpacer(padding)
 
@@ -1224,17 +1259,50 @@ class ShowsList(wx.Frame):
 
         # Bindings
         self.Bind(wx.EVT_CLOSE, self.on_close)
+        self.Bind(wx.EVT_TEXT, self.apply_filters, self.search_box)
+        self.Bind(wx.EVT_CHECKBOX, self.apply_filters, self.show_complete_box)
+        self.Bind(wx.EVT_BUTTON, self.view_show, self.edit_button)
+        self.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.view_show, self.shows_list)
+        self.Bind(wx.EVT_CLOSE, self.on_close)
 
-        self.populate_table(None)
+        self.populate_table()
+        self.apply_filters()
         self.update_table_size(None)
 
-    def purge_viewers(self):
-        for v in self.show_viewers:
-            if not v.open:
-                self.show_viewers.remove(v)
+    def view_show(self, e=None):
+        if self.shows_list.GetFirstSelected() == -1:
+            return
+        show_id = self.shows_list.GetItem(self.shows_list.GetFirstSelected(), 0).GetText()
+        self.parent.view_show(int(show_id))
+
+    def apply_filters(self, e=None):
+        fields_to_text_filter = [("show_id", lambda x: str(x).zfill(6)),
+                                 ("show_title", lambda x: x.lower()),
+                                 ("show_description", lambda x: x.lower() if x is not None else ""),
+                                 ("supervisor", lambda x: x.lower() if x is not None else "")]
+        text_filter = self.search_box.GetValue().strip().lower()
+        search = re.compile(text_filter, re.MULTILINE)
+        for i, s in enumerate(self.shows):
+            show = True
+            if text_filter is not "":
+                show = False
+                for f in fields_to_text_filter:
+                    val = f[1](getattr(s, f[0]))
+                    if search.search(val) is not None:
+                        show = True
+                        break
+            elif s.complete and not self.show_complete_box.GetValue():
+                show = False
+            self.filter_flags[i] = show
+        self.populate_table()
 
     def populate_table(self, e=None):
-        pass
+        self.shows_list.DeleteAllItems()
+        for i, s in enumerate(self.shows):
+            if self.filter_flags[i]:
+                self.shows_list.Append(["" if getattr(s, self.table_headers[h][0]) is None else
+                                        self.table_headers[h][1](getattr(s, self.table_headers[h][0]))
+                                        for h in self.table_headers])
 
     def update_table_size(self, e=None):
         list_size = self.shows_list.GetSize()
@@ -1245,13 +1313,9 @@ class ShowsList(wx.Frame):
         self.shows_list.SetColumnWidth(self.column_to_expand, new_width)
 
     def on_close(self, e=None):
-        self.purge_viewers()
-        if len(self.show_viewers) > 0:
-            self.Hide()
-        else:
-            self.open = False
-            if e is not None:
-                e.Skip()
+        self.open = False
+        if e is not None:
+            e.Skip()
 
     def Refresh(self, eraseBackground=True, rect=None):
         self.populate_table()
@@ -1259,7 +1323,82 @@ class ShowsList(wx.Frame):
 
 
 class ShowViewer(wx.Frame):
-    pass
+    def __init__(self, parent, frame_id, show_id, database: database_io.DatabaseHandler):
+        self.title = TITLE + " - Show: " + str(show_id).zfill(6)
+        super().__init__(parent,
+                         frame_id,
+                         self.title,
+                         style=wx.DEFAULT_FRAME_STYLE)
+        self.title = TITLE
+        self.database = database
+        self.show_id = show_id
+        self.open = True
+        self.item_viewers = []
+
+        controls_panel = wx.Panel(self, -1)
+
+        with self.database.open_database_connection() as con:
+            self.categories = self.database.get_categories(con)
+            self.classifications = self.database.get_classifications(con)
+            self.show_items = self.database.get_show_items(con, self.show_id)
+
+        # Setup ListCtrl
+        self.stock_list = wx.ListCtrl(self,
+                                      size=(-1, -1),
+                                      style=wx.LC_REPORT | wx.LC_HRULES)
+
+        self.table_headers = {"SKU": ("sku", lambda x: str(x).zfill(6), 50),
+                              "Product ID": ("product_id", lambda x: x, 70),
+                              "Description": ("description", lambda x: x.replace("\n", " "), 250)
+                              }
+        self.column_to_expand = 2
+
+        for i, h in enumerate(self.table_headers.keys()):
+            self.stock_list.InsertColumn(i, h)
+            self.stock_list.SetColumnWidth(i, self.table_headers[h][2])
+
+        # Create and populate the controls area.
+        controls_sizer = wx.GridBagSizer(5, 5)
+
+        controls_panel.SetSizerAndFit(controls_sizer)
+
+        # Add things to the main sizer, and assign it to a main panel.
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        main_sizer.Add(controls_panel, 0, wx.EXPAND)
+
+        main_sizer.Add(self.stock_list, 1, wx.EXPAND)
+
+        main_sizer.SetSizeHints(self)
+
+        self.SetSizerAndFit(main_sizer)
+        self.Show()
+
+        # Bindings
+        self.Bind(wx.EVT_CLOSE, self.on_close)
+
+        self.populate_table()
+
+    def populate_table(self, e=None):
+        self.stock_list.DeleteAllItems()
+        for s in self.show_items:
+            self.stock_list.Append(["" if getattr(s[0], self.table_headers[h][0]) is None else
+                                    self.table_headers[h][1](getattr(s[0], self.table_headers[h][0]))
+                                    for h in self.table_headers])
+
+    def purge_viewers(self, e=None):
+        for v in self.item_viewers:
+            if not v.open:
+                self.item_viewers.remove(v)
+
+    def on_close(self, e=None):
+        self.purge_viewers()
+        if len(self.item_viewers) > 0:
+            self.Hide()
+        else:
+            self.open = False
+            if e is not None:
+                e.Skip()
 
 
 class LoginDialog(sized_controls.SizedDialog):
