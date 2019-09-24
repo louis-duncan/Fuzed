@@ -82,7 +82,8 @@ class Show:
                  date_time=datetime.datetime.now(),
                  complete=False,
                  changes=(),
-                 items=()
+                 items=(),
+                 venue=None
                  ):
         self.show_id = show_id
         self.show_title = show_title
@@ -92,6 +93,7 @@ class Show:
         self.items = list(items)  # list of (stock item, qty).
         self.changes = list(changes)  # list of Record objects.
         self.complete = complete
+        self.venue = venue
 
     def add_change_log(self, date_time, user_id, action_text):
         self.changes.append({'date_time': date_time,
