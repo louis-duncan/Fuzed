@@ -2,11 +2,11 @@ import re
 import database_io
 import wx
 import webbrowser
+import urllib.parse
 from custom_globals import *
 from wx.richtext import RichTextCtrl
 from wx.lib import sized_controls
 from copy import deepcopy
-
 from database_structs import StockItem
 
 
@@ -25,6 +25,7 @@ class Launcher(wx.Frame):
         self.stock_viewer = None
         self.events_viewer = None
         self.control_panel = None
+        self.item_viewers = []
         self.show_viewers = []
 
         try:
@@ -100,6 +101,8 @@ class Launcher(wx.Frame):
         self.Fit()
         self.update_upcoming()
 
+        # Bindings
+        self.Bind(wx.EVT_CLOSE, self.on_close)
         self.Bind(wx.EVT_TEXT_URL, self.event_clicked)
         self.Bind(wx.EVT_BUTTON, self.stock_button_clicked, self.stock_button)
         self.Bind(wx.EVT_BUTTON, self.events_button_clicked, self.events_button)
@@ -276,10 +279,15 @@ class Launcher(wx.Frame):
                 to_go.append(v)
         for v in to_go:
             self.show_viewers.remove(v)
+        to_go = []
+        for v in self.item_viewers:
+            if not v.open:
+                to_go.append(v)
+        for v in to_go:
+            self.item_viewers.remove(v)
 
     def view_show(self, show_id):
         self.purge_viewers()
-        found = False
         for v in self.show_viewers:
             if v.show_id == show_id:
                 v.Restore()
@@ -288,12 +296,41 @@ class Launcher(wx.Frame):
                 break
             else:
                 pass
-        if not found:
+        else:
             self.show_viewers.append(ShowViewer(self, wx.ID_ANY, database=self.database, show_id=show_id))
+
+    def add_item_viewer(self, sku=None):
+        self.purge_viewers()
+        for v in self.item_viewers:
+            if v.sku_val == sku:
+                v.Restore()
+                v.Raise()
+                found = True
+                break
+            else:
+                pass
+        else:
+            self.item_viewers.append(ItemViewer(self, wx.ID_ANY, title=None, database=self.database, sku=sku))
+
+    def on_close(self, e=None):
+        self.purge_viewers()
+        if self.stock_viewer is not None:
+            self.stock_viewer.Destroy()
+        if self.events_viewer is not None:
+            self.events_viewer.Destroy()
+        if self.control_panel is not None:
+            self.control_panel.Destroy()
+        for v in self.item_viewers:
+            v.Destroy()
+        for v in self.show_viewers:
+            v.Destroy()
+        if e is not None:
+            e.Skip()
 
 
 class StockList(wx.Frame):
     def __init__(self, parent, frame_id, title, database: database_io.DatabaseHandler):
+        self.parent = parent
         self.title = title + " - Stock Viewer"
         super().__init__(parent,
                          frame_id,
@@ -302,7 +339,6 @@ class StockList(wx.Frame):
         self.title = title
         self.database = database
         self.open = True
-        self.item_viewers = []
 
         controls_panel = wx.Panel(self, -1)
 
@@ -458,29 +494,13 @@ class StockList(wx.Frame):
         self.update_table_size(None)
 
     def create_button_clicked(self, e=None):
-        self.item_viewers.append(ItemViewer(self, wx.ID_ANY, title=None, database=self.database, sku=None))
-
-    def purge_viewers(self):
-        for v in self.item_viewers:
-            if not v.open:
-                self.item_viewers.remove(v)
+        self.parent.add_item_viewer(None)
 
     def edit_button_clicked(self, e=None):
         if self.stock_list.GetFirstSelected() == -1:
             return
         sku = self.stock_list.GetItem(self.stock_list.GetFirstSelected(), 0).GetText()
-        found = False
-        self.purge_viewers()
-        for v in self.item_viewers:
-            if v.sku_val == sku:
-                v.Restore()
-                v.Raise()
-                found = True
-                break
-            else:
-                pass
-        if not found:
-            self.item_viewers.append(ItemViewer(self, wx.ID_ANY, title=None, database=self.database, sku=sku))
+        self.parent.add_item_viewer(sku)
 
     def apply_filters(self, e=None):
         fields_to_text_filter = [("sku", lambda x: str(x).zfill(6)),
@@ -553,13 +573,11 @@ class StockList(wx.Frame):
         self.stock_list.SetColumnWidth(self.column_to_expand, new_width)
 
     def on_close(self, e=None):
-        self.purge_viewers()
-        if len(self.item_viewers) > 0:
-            self.Hide()
-        else:
-            self.open = False
-            if e is not None:
-                e.Skip()
+        self.parent.purge_viewers()
+
+        self.open = False
+        if e is not None:
+            e.Skip()
 
     def Refresh(self, eraseBackground=True, rect=None):
         self.populate_table()
@@ -1333,7 +1351,7 @@ class ShowViewer(wx.Frame):
         self.database = database
         self.show_id = show_id
         self.open = True
-        self.item_viewers = []
+        self.show_item_viewers = []
 
         controls_panel = wx.Panel(self, -1)
 
@@ -1376,8 +1394,15 @@ class ShowViewer(wx.Frame):
 
         # Bindings
         self.Bind(wx.EVT_CLOSE, self.on_close)
+        self.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.item_clicked, self.stock_list)
 
         self.populate_table()
+
+    def item_clicked(self, e=None):
+        if self.stock_list.GetFirstSelected() == -1:
+            return
+
+        sku = self.stock_list.GetItem(self.stock_list.GetFirstSelected(), 0).GetText()
 
     def populate_table(self, e=None):
         self.stock_list.DeleteAllItems()
@@ -1387,18 +1412,22 @@ class ShowViewer(wx.Frame):
                                     for h in self.table_headers])
 
     def purge_viewers(self, e=None):
-        for v in self.item_viewers:
+        for v in self.show_item_viewers:
             if not v.open:
-                self.item_viewers.remove(v)
+                self.show_item_viewers.remove(v)
 
     def on_close(self, e=None):
         self.purge_viewers()
-        if len(self.item_viewers) > 0:
+        if len(self.show_item_viewers) > 0:
             self.Hide()
         else:
             self.open = False
             if e is not None:
                 e.Skip()
+
+
+class ShowItemViewer(wx.Frame):
+    pass
 
 
 class LoginDialog(sized_controls.SizedDialog):
@@ -1703,3 +1732,9 @@ def call_if_callable(f, *args, **kwargs):
         return f(*args, **kwargs)
     else:
         return f
+
+
+def launch_google_maps(location):
+    base_url = "https://www.google.com/maps/search/?api=1&query={}"
+    escaped = urllib.parse.quote(location)
+    webbrowser.open(base_url.format(escaped))
