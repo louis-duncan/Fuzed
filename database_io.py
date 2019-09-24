@@ -326,7 +326,8 @@ class DatabaseHandler:
                     datetime.datetime.fromtimestamp(record.date_time / 1000),
                     bool(record.complete),
                     changes,
-                    items)
+                    items,
+                    record.venue)
 
     def get_all_items(self, con):
         return [StockItem(i) for i in con.all("SELECT * FROM stock_items")]
